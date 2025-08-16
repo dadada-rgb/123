@@ -1,15 +1,2208 @@
-better combat: https://www.curseforge.com/minecraft/mc-mods/better-combat-by-daedelus/download/4428886
-better nether: https://www.curseforge.com/minecraft/mc-mods/betternether/download/3814362
-player animation: https://www.curseforge.com/minecraft/mc-mods/playeranimator/download/4418153
-cloth congfig api: https://www.curseforge.com/minecraft/mc-mods/cloth-config/download/5729089
-completeConfig: https://www.curseforge.com/minecraft/mc-mods/completeconfig/download/3773665
-Better Advancements: https://www.curseforge.com/minecraft/mc-mods/better-advancements/download/4111317
-Better End: https://www.curseforge.com/minecraft/mc-mods/betterend/download/3814370
-BCLib: https://www.curseforge.com/minecraft/mc-mods/bclib/download/3814359
-Cupboard: https://www.curseforge.com/minecraft/mc-mods/cupboard/download/4691987
-Loot InteGrations: https://www.curseforge.com/minecraft/mc-mods/loot-integrations/download/6640988
-Architectury API: https://www.curseforge.com/minecraft/mc-mods/architectury-api/download/5137927
-Better Animals Plus: https://www.curseforge.com/minecraft/mc-mods/betteranimalsplus/download/4318510
-Library ferret: https://www.curseforge.com/minecraft/mc-mods/library-ferret-fabric/download/4435494
-falling tree: https://www.curseforge.com/minecraft/mc-mods/falling-tree/download/4501689
-mc mod: https://www.curseforge.com/minecraft/mc-mods/fabric-api/download/4902647
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+local Lighting = game:GetService("Lighting")
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+local StarterGui = game:GetService("StarterGui")
+
+function sendNotification(title, text, duration)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title or "DhuyxDtuyen",
+            Text = text or "",
+            Duration = duration or 3
+        })
+    end)
+end
+
+-- Cấu trúc config mặc định
+local Config = {
+    Buttons = {}, -- Lưu keybind + trạng thái của từng chức năng
+    ESPEnabled = true,
+    SpeedEnabled = false,
+    FlyEnabled = false,
+    AimbotEnabled = false,
+    FullbrightEnabled = false,
+    NoclipEnabled = false,
+    ShiftAmount = 0.5,
+    SelectedPlayers = {},
+    FlySpeed = 35,
+    SpeedAmount = 20,
+    infiniteJumpEnabled = false,
+    clickTpEnabled = false,
+    checkKOAimbot = true,
+    CustomPing = nil
+}
+
+local autoSelect = false
+local tbEnabled = true
+local fovRadius = 20
+local Player = nil
+local camera = Workspace.CurrentCamera
+local clickTpTool = nil
+local savedWaypoint = nil
+local noclipConnection = nil
+local Keybinds = {} 
+
+-- Biến lưu trạng thái Lighting cũ cho Fullbright
+local oldLighting = {
+    Brightness = Lighting.Brightness,
+    GlobalShadows = Lighting.GlobalShadows,
+    FogEnd = Lighting.FogEnd,
+    Ambient = Lighting.Ambient,
+    OutdoorAmbient = Lighting.OutdoorAmbient,
+    ClockTime = Lighting.ClockTime
+}
+
+-- Tạo hiệu ứng mờ nền
+local blur = Instance.new("BlurEffect")
+blur.Size = 20
+blur.Parent = Lighting
+
+-- Tạo GUI intro
+local introGui = Instance.new("ScreenGui")
+introGui.Name = "VhuyIntroGui"
+introGui.IgnoreGuiInset = true
+introGui.ResetOnSpawn = false
+introGui.DisplayOrder = 99999
+introGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+local bg = Instance.new("Frame")
+bg.Size = UDim2.new(1, 0, 1, 0)
+bg.BackgroundColor3 = Color3.new(0, 0, 0)
+bg.BackgroundTransparency = 1
+bg.Parent = introGui
+
+local title = Instance.new("TextLabel")
+title.AnchorPoint = Vector2.new(0.5, 0.5)
+title.Position = UDim2.new(0.5, 0, 0.5, 0)
+title.Size = UDim2.new(0, 400, 0, 120)
+title.Text = "DhuyxDtuyen"
+title.Font = Enum.Font.GothamBlack
+title.TextColor3 = Color3.fromRGB(255, 179, 186)
+title.TextScaled = true
+title.TextTransparency = 1
+title.BackgroundTransparency = 1
+title.Parent = introGui
+
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 12)
+corner.Parent = title
+
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 179, 186)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 100, 100))
+}
+gradient.Rotation = 45
+gradient.Parent = title
+
+-- Hiệu ứng fade in
+TweenService:Create(title, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {TextTransparency = 0}):Play()
+TweenService:Create(bg, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.In), {BackgroundTransparency = 0.4}):Play()
+
+-- Hiệu ứng fade out
+task.delay(4, function()
+    TweenService:Create(title, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {TextTransparency = 1}):Play()
+    TweenService:Create(bg, TweenInfo.new(1.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {BackgroundTransparency = 1}):Play()
+    task.delay(1.5, function()
+        introGui:Destroy()
+        blur:Destroy()
+    end)
+end)
+
+-- GUI chính
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "DhuyxMenu"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.IgnoreGuiInset = true
+ScreenGui.Parent = PlayerGui
+
+local MenuFrame = Instance.new("Frame")
+MenuFrame.Size = UDim2.new(0, 400, 0, 300)
+MenuFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
+MenuFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+MenuFrame.BackgroundTransparency = 0.1
+MenuFrame.Active = true
+MenuFrame.Draggable = true
+MenuFrame.Parent = ScreenGui
+Instance.new("UICorner", MenuFrame).CornerRadius = UDim.new(0, 12)
+
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 179, 186)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(100, 100, 255))
+}
+gradient.Rotation = 45
+gradient.Parent = MenuFrame
+
+local stroke = Instance.new("UIStroke")
+stroke.Thickness = 2
+stroke.Color = Color3.fromRGB(255, 255, 255)
+stroke.Transparency = 0.3
+stroke.Parent = MenuFrame
+
+-- Nút Toggle Show/Hide
+local ToggleButton = Instance.new("TextButton")
+ToggleButton.Size = UDim2.new(0, 70, 0, 30)
+ToggleButton.Position = UDim2.new(0, 20, 0, 240)
+ToggleButton.BackgroundColor3 = Color3.fromRGB(255, 179, 186)
+ToggleButton.Text = "SHOW"
+ToggleButton.TextColor3 = Color3.new(0, 0, 0)
+ToggleButton.Font = Enum.Font.GothamBold
+ToggleButton.TextSize = 16
+ToggleButton.Active = true
+ToggleButton.Draggable = true
+ToggleButton.Parent = ScreenGui
+Instance.new("UICorner", ToggleButton).CornerRadius = UDim.new(0, 10)
+
+local toggleGradient = Instance.new("UIGradient")
+toggleGradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 179, 186)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 100, 100))
+}
+toggleGradient.Parent = ToggleButton
+
+-- Hiệu ứng hover/click
+local function animateButton(btn)
+    btn.MouseEnter:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 200, 200)}):Play()
+    end)
+    btn.MouseLeave:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.2), {BackgroundColor3 = Color3.fromRGB(255, 179, 186)}):Play()
+    end)
+    btn.MouseButton1Click:Connect(function()
+        TweenService:Create(btn, TweenInfo.new(0.1), {Size = btn.Size + UDim2.new(0, 5, 0, 5)}):Play()
+        task.wait(0.1)
+        TweenService:Create(btn, TweenInfo.new(0.1), {Size = btn.Size - UDim2.new(0, 5, 0, 5)}):Play()
+    end)
+end
+animateButton(ToggleButton)
+
+ToggleButton.MouseButton1Click:Connect(function()
+    local targetSize = MenuFrame.Visible and UDim2.new(0, 0, 0, 0) or UDim2.new(0, 400, 0, 300)
+    local tween = TweenService:Create(MenuFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = targetSize})
+    if not MenuFrame.Visible then
+        MenuFrame.Visible = true
+        tween:Play()
+    else
+        tween:Play()
+        tween.Completed:Wait()
+        MenuFrame.Visible = false
+    end
+    ToggleButton.Text = MenuFrame.Visible and "HIDE" or "SHOW"
+end)
+
+-- Tiêu đề & Ping/FPS/Clock
+local MenuTitle = Instance.new("TextLabel")
+MenuTitle.Size = UDim2.new(1, 0, 0, 30)
+MenuTitle.BackgroundTransparency = 1
+MenuTitle.Text = "DhuyxDtuyen"
+MenuTitle.TextColor3 = Color3.fromRGB(255, 179, 186)
+MenuTitle.Font = Enum.Font.GothamBlack
+MenuTitle.TextSize = 18
+MenuTitle.Parent = MenuFrame
+
+local PingClock = Instance.new("TextLabel")
+PingClock.Size = UDim2.new(0, 200, 0, 25)
+PingClock.Position = UDim2.new(0, 5, 0, -30)
+PingClock.BackgroundTransparency = 1
+PingClock.TextColor3 = Color3.fromRGB(255, 255, 255)
+PingClock.Font = Enum.Font.Gotham
+PingClock.TextSize = 14
+PingClock.Parent = MenuTitle
+
+task.spawn(function()
+    while task.wait(1) do
+        local ping = math.floor(game:GetService("Stats").Network.ServerStatsItem["Data Ping"]:GetValue())
+        local fps = math.floor(1 / RunService.RenderStepped:Wait())
+        local timeStr = os.date("%H:%M")
+        PingClock.Text = string.format("Ping: %d ms | FPS: %d | %s", ping, fps, timeStr)
+    end
+end)
+
+local PingBox = Instance.new("TextBox")
+PingBox.Size = UDim2.new(0, 80, 0, 25)
+PingBox.Position = UDim2.new(1, -85, 0, 2)
+PingBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+PingBox.BackgroundTransparency = 0.2
+PingBox.TextColor3 = Color3.fromRGB(0, 0, 0)
+PingBox.TextSize = 14
+PingBox.Font = Enum.Font.Gotham
+PingBox.PlaceholderText = "Ping (ms)"
+PingBox.Text = ""
+PingBox.ClearTextOnFocus = false
+PingBox.Parent = MenuTitle
+Instance.new("UICorner", PingBox).CornerRadius = UDim.new(0, 6)
+
+PingBox:GetPropertyChangedSignal("Text"):Connect(function()
+    local input = tonumber(PingBox.Text)
+    if input and input >= 0 then
+        Config.CustomPing = math.clamp(input, 10, 1000)
+    else
+        Config.CustomPing = nil
+    end
+end)
+
+-- Tạo 3 trang
+local currentPage = 1
+
+local Page1 = Instance.new("Frame")
+Page1.Size = UDim2.new(1, 0, 1, -70)
+Page1.Position = UDim2.new(0, 0, 0, 30)
+Page1.BackgroundTransparency = 1
+Page1.Parent = MenuFrame
+
+-- Frame danh sách người chơi cho trang 1
+local PlayerListFrame = Instance.new("Frame")
+PlayerListFrame.Size = UDim2.new(0.5, -5, 1, -20)
+PlayerListFrame.Position = UDim2.new(0, 5, 0, 10)
+PlayerListFrame.BackgroundTransparency = 1
+PlayerListFrame.Parent = Page1
+
+local PlayerList = Instance.new("ScrollingFrame")
+PlayerList.Size = UDim2.new(1, 0, 1, 0)
+PlayerList.CanvasSize = UDim2.new(0, 0, 0, 0)
+PlayerList.ScrollBarThickness = 4
+PlayerList.BackgroundTransparency = 1
+PlayerList.Parent = PlayerListFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+UIListLayout.Padding = UDim.new(0, 4)
+UIListLayout.Parent = PlayerList
+UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    PlayerList.CanvasSize = UDim2.new(0, 0, 0, UIListLayout.AbsoluteContentSize.Y)
+end)
+
+-- Frame nút chức năng cho trang 1
+local ButtonFrame1 = Instance.new("ScrollingFrame")
+ButtonFrame1.Size = UDim2.new(0.5, -5, 1, -20)
+ButtonFrame1.Position = UDim2.new(0.5, 0, 0, 10)
+ButtonFrame1.BackgroundTransparency = 1
+ButtonFrame1.ScrollBarThickness = 4
+ButtonFrame1.CanvasSize = UDim2.new(0, 0, 0, 0)
+ButtonFrame1.Parent = Page1
+
+local ButtonLayout1 = Instance.new("UIListLayout")
+ButtonLayout1.SortOrder = Enum.SortOrder.LayoutOrder
+ButtonLayout1.Padding = UDim.new(0, 6)
+ButtonLayout1.Parent = ButtonFrame1
+ButtonLayout1:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ButtonFrame1.CanvasSize = UDim2.new(0, 0, 0, ButtonLayout1.AbsoluteContentSize.Y)
+end)
+
+local Page2 = Instance.new("Frame")
+Page2.Size = UDim2.new(1, 0, 1, -70)
+Page2.Position = UDim2.new(0, 0, 0, 30)
+Page2.BackgroundTransparency = 1
+Page2.Visible = false
+Page2.Parent = MenuFrame
+
+-- Frame nút chức năng trái cho trang 2
+local ButtonFrame2Left = Instance.new("ScrollingFrame")
+ButtonFrame2Left.Size = UDim2.new(0.5, -5, 1, -20)
+ButtonFrame2Left.Position = UDim2.new(0, 5, 0, 10)
+ButtonFrame2Left.BackgroundTransparency = 1
+ButtonFrame2Left.ScrollBarThickness = 4
+ButtonFrame2Left.CanvasSize = UDim2.new(0, 0, 0, 0)
+ButtonFrame2Left.Parent = Page2
+
+local ButtonLayout2Left = Instance.new("UIListLayout")
+ButtonLayout2Left.SortOrder = Enum.SortOrder.LayoutOrder
+ButtonLayout2Left.Padding = UDim.new(0, 6)
+ButtonLayout2Left.Parent = ButtonFrame2Left
+ButtonLayout2Left:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ButtonFrame2Left.CanvasSize = UDim2.new(0, 0, 0, ButtonLayout2Left.AbsoluteContentSize.Y)
+end)
+
+-- Frame nút chức năng phải cho trang 2
+local ButtonFrame2Right = Instance.new("ScrollingFrame")
+ButtonFrame2Right.Size = UDim2.new(0.5, -5, 1, -20)
+ButtonFrame2Right.Position = UDim2.new(0.5, 0, 0, 10)
+ButtonFrame2Right.BackgroundTransparency = 1
+ButtonFrame2Right.ScrollBarThickness = 4
+ButtonFrame2Right.CanvasSize = UDim2.new(0, 0, 0, 0)
+ButtonFrame2Right.Parent = Page2
+
+local ButtonLayout2Right = Instance.new("UIListLayout")
+ButtonLayout2Right.SortOrder = Enum.SortOrder.LayoutOrder
+ButtonLayout2Right.Padding = UDim.new(0, 6)
+ButtonLayout2Right.Parent = ButtonFrame2Right
+ButtonLayout2Right:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ButtonFrame2Right.CanvasSize = UDim2.new(0, 0, 0, ButtonLayout2Right.AbsoluteContentSize.Y)
+end)
+
+local Page3 = Instance.new("Frame")
+Page3.Size = UDim2.new(1, 0, 1, -70)
+Page3.Position = UDim2.new(0, 0, 0, 30)
+Page3.BackgroundTransparency = 1
+Page3.Visible = false
+Page3.Parent = MenuFrame
+
+local ScriptHubScroll = Instance.new("ScrollingFrame")
+ScriptHubScroll.Size = UDim2.new(1, -10, 1, -50)
+ScriptHubScroll.Position = UDim2.new(0, 5, 0, 5)
+ScriptHubScroll.BackgroundTransparency = 1
+ScriptHubScroll.ScrollBarThickness = 6
+ScriptHubScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+ScriptHubScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+ScriptHubScroll.Parent = Page3
+
+local ScriptListLayout = Instance.new("UIListLayout")
+ScriptListLayout.SortOrder = Enum.SortOrder.LayoutOrder
+ScriptListLayout.Padding = UDim.new(0, 6)
+ScriptListLayout.FillDirection = Enum.FillDirection.Vertical
+ScriptListLayout.Parent = ScriptHubScroll
+
+ScriptListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    ScriptHubScroll.CanvasSize = UDim2.new(0, 0, 0, ScriptListLayout.AbsoluteContentSize.Y)
+end)
+
+local function CreateScriptItem(name, url)
+    local itemFrame = Instance.new("Frame")
+    itemFrame.Size = UDim2.new(1, 0, 0, 35)
+    itemFrame.BackgroundTransparency = 0.2
+    itemFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    itemFrame.Parent = ScriptHubScroll
+    Instance.new("UICorner", itemFrame).CornerRadius = UDim.new(0, 6)
+
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(0.7, 0, 1, 0)
+    nameLabel.Position = UDim2.new(0, 5, 0, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = name
+    nameLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
+    nameLabel.TextSize = 16
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+    nameLabel.Parent = itemFrame
+
+    local runBtn = Instance.new("TextButton")
+    runBtn.Size = UDim2.new(0.3, -10, 1, -4)
+    runBtn.Position = UDim2.new(0.7, 5, 0, 2)
+    runBtn.BackgroundColor3 = Color3.fromRGB(100, 200, 100)
+    runBtn.Text = "Run"
+    runBtn.TextColor3 = Color3.fromRGB(0, 0, 0)
+    runBtn.TextSize = 16
+    runBtn.Font = Enum.Font.GothamBold
+    runBtn.Parent = itemFrame
+    Instance.new("UICorner", runBtn).CornerRadius = UDim.new(0, 6)
+    animateButton(runBtn)
+
+    runBtn.MouseButton1Click:Connect(function()
+        loadstring(game:HttpGet(url))()
+    end)
+
+    return itemFrame
+end
+
+CreateScriptItem("Evade", "https://raw.githubusercontent.com/dadada-rgb/VhuyHub/refs/heads/main/evade")
+CreateScriptItem("Murder Mystery 2", "https://raw.githubusercontent.com/dadada-rgb/VhuyHub/refs/heads/main/mm2")
+CreateScriptItem("Blade Ball", "https://raw.githubusercontent.com/dadada-rgb/VhuyHub/refs/heads/main/Bladeball")
+CreateScriptItem("Doors", "https://raw.githubusercontent.com/DarkDoorsKing/Project/main/Doors.lua")
+CreateScriptItem("Emote", "https://raw.githubusercontent.com/dadada-rgb/VhuyHub/refs/heads/main/emote")
+
+local PageButtons = Instance.new("Frame")
+PageButtons.Size = UDim2.new(1, 0, 0, 35)
+PageButtons.Position = UDim2.new(0, 0, 1, -35)
+PageButtons.BackgroundTransparency = 1
+PageButtons.Parent = MenuFrame
+
+local Btn1 = Instance.new("TextButton")
+Btn1.Size = UDim2.new(1/3, -2, 1, 0)
+Btn1.Position = UDim2.new(0, 0, 0, 0)
+Btn1.Text = "Da Hood"
+Btn1.BackgroundColor3 = Color3.fromRGB(255, 179, 186)
+Btn1.TextColor3 = Color3.fromRGB(0, 0, 0)
+Btn1.Font = Enum.Font.GothamBold
+Btn1.TextSize = 16
+Instance.new("UICorner", Btn1).CornerRadius = UDim.new(0, 6)
+Btn1.Parent = PageButtons
+animateButton(Btn1)
+
+local Btn2 = Instance.new("TextButton")
+Btn2.Size = UDim2.new(1/3, -2, 1, 0)
+Btn2.Position = UDim2.new(1/3, 2, 0, 0)
+Btn2.Text = "Universal"
+Btn2.BackgroundColor3 = Color3.fromRGB(255, 179, 186)
+Btn2.TextColor3 = Color3.fromRGB(0, 0, 0)
+Btn2.Font = Enum.Font.GothamBold
+Btn2.TextSize = 16
+Instance.new("UICorner", Btn2).CornerRadius = UDim.new(0, 6)
+Btn2.Parent = PageButtons
+animateButton(Btn2)
+
+local Btn3 = Instance.new("TextButton")
+Btn3.Size = UDim2.new(1/3, -2, 1, 0)
+Btn3.Position = UDim2.new(2/3, 2, 0, 0)
+Btn3.Text = "Script Other"
+Btn3.BackgroundColor3 = Color3.fromRGB(255, 179, 186)
+Btn3.TextColor3 = Color3.fromRGB(0, 0, 0)
+Btn3.Font = Enum.Font.GothamBold
+Btn3.TextSize = 16
+Instance.new("UICorner", Btn3).CornerRadius = UDim.new(0, 6)
+Btn3.Parent = PageButtons
+animateButton(Btn3)
+
+local function ShowPage(page)
+    Page1.Visible = (page == 1)
+    Page2.Visible = (page == 2)
+    Page3.Visible = (page == 3)
+end
+
+Btn1.MouseButton1Click:Connect(function()
+    ShowPage(1)
+end)
+Btn2.MouseButton1Click:Connect(function()
+    ShowPage(2)
+end)
+Btn3.MouseButton1Click:Connect(function()
+    ShowPage(3)
+end)
+
+-- Lắng nghe phím duy nhất 1 lần
+UserInputService.InputBegan:Connect(function(input, gp)
+    if gp then return end
+    local key = input.KeyCode.Name:upper()
+    if Keybinds[key] then
+        Keybinds[key]() -- chạy đúng callback
+    end
+end)
+
+-- Hàm tạo button
+local function CreateButton(parent, name, callback)
+    local buttonFrame = Instance.new("Frame")
+    buttonFrame.Size = UDim2.new(1, -10, 0, 30)
+    buttonFrame.BackgroundTransparency = 1
+    buttonFrame.Parent = parent
+
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0.7, -5, 1, 0)
+    button.BackgroundColor3 = Color3.fromRGB(255, 179, 186)
+    button.BackgroundTransparency = 0.2
+    button.TextColor3 = Color3.fromRGB(0, 0, 0)
+    button.TextSize = 14
+    button.Font = Enum.Font.Gotham
+    button.Text = name
+    button.Parent = buttonFrame
+    Instance.new("UICorner", button).CornerRadius = UDim.new(0, 6)
+    animateButton(button)
+    button.MouseButton1Click:Connect(callback)
+
+    -- Ô nhập keybind
+    local keyBox = Instance.new("TextBox")
+    keyBox.Size = UDim2.new(0.3, 0, 1, 0)
+    keyBox.Position = UDim2.new(0.7, 5, 0, 0)
+    keyBox.BackgroundColor3 = Color3.fromRGB(230, 230, 230)
+    keyBox.PlaceholderText = "Key"
+    keyBox.Text = ""
+    keyBox.TextColor3 = Color3.fromRGB(0, 0, 0)
+    keyBox.TextSize = 14
+    keyBox.Font = Enum.Font.Gotham
+    keyBox.ClearTextOnFocus = false
+    keyBox.Parent = buttonFrame
+    Instance.new("UICorner", keyBox).CornerRadius = UDim.new(0, 6)
+
+    -- Khi người dùng nhập key mới
+    keyBox:GetPropertyChangedSignal("Text"):Connect(function()
+        local text = keyBox.Text:upper()
+
+        -- Nếu gõ "button" thì tạo nút rời ngoài màn hình
+        if text == "BUTTON" then
+            local screenGui = Instance.new("ScreenGui")
+            screenGui.IgnoreGuiInset = true
+            screenGui.Parent = game:GetService("CoreGui")
+
+            local screenBtn = Instance.new("TextButton")
+            screenBtn.Size = UDim2.new(0, 70, 0, 30)
+            screenBtn.Position = UDim2.new(0, 100, 0, 300)
+            screenBtn.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
+            screenBtn.Text = name
+            screenBtn.TextColor3 = Color3.new(0, 0, 0)
+            screenBtn.TextSize = 10
+            screenBtn.Font = Enum.Font.GothamBold
+            screenBtn.Parent = screenGui
+            Instance.new("UICorner", screenBtn).CornerRadius = UDim.new(0, 6)
+
+            -- Kéo di chuyển
+            local dragging, dragStart, startPos = false
+            screenBtn.InputBegan:Connect(function(input)
+                if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                    dragging = true
+                    dragStart = input.Position
+                    startPos = screenBtn.Position
+                    input.Changed:Connect(function()
+                        if input.UserInputState == Enum.UserInputState.End then
+                            dragging = false
+                        end
+                    end)
+                end
+            end)
+            UserInputService.InputChanged:Connect(function(input)
+                if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                    local delta = input.Position - dragStart
+                    screenBtn.Position = UDim2.new(
+                        startPos.X.Scale, startPos.X.Offset + delta.X,
+                        startPos.Y.Scale, startPos.Y.Offset + delta.Y
+                    )
+                end
+            end)
+
+            -- Khi bấm thì chạy callback
+            screenBtn.MouseButton1Click:Connect(callback)
+
+        else
+            -- Nếu là phím hợp lệ
+            if Enum.KeyCode[text] then
+                -- Xóa bind cũ nếu có
+                Keybinds[text] = nil
+                -- Gán bind mới
+                Keybinds[text] = callback
+            end
+        end
+    end)
+
+    return button
+end
+
+-- Nút cho trang 1
+espButton = CreateButton(ButtonFrame1, "ESP: OFF", function()
+    Config.ESPEnabled = not Config.ESPEnabled
+    espButton.Text = "ESP: " .. (Config.ESPEnabled and "ON" or "OFF")
+    sendNotification("ESP", Config.ESPEnabled and "ON" or "OFF")
+end)
+
+speedButton = CreateButton(ButtonFrame1, "Speed: OFF", function()
+    Config.SpeedEnabled = not Config.SpeedEnabled
+    speedButton.Text = "Speed: " .. (Config.SpeedEnabled and "ON" or "OFF")
+    sendNotification("SPEED", Config.SpeedEnabled and "ON" or "OFF")
+end)
+
+flyButton = CreateButton(ButtonFrame1, "Fly: OFF", function()
+    Config.FlyEnabled = not Config.FlyEnabled
+    flyButton.Text = "Fly: " .. (Config.FlyEnabled and "ON" or "OFF")
+    sendNotification("FLY", Config.FlyEnabled and "ON" or "OFF")
+end)
+
+aimbotButton = CreateButton(ButtonFrame1, "Aimlock: OFF", function()
+    Config.AimbotEnabled = not Config.AimbotEnabled
+    aimbotButton.Text = "Aimlock: " .. (Config.AimbotEnabled and "ON" or "OFF")
+    sendNotification("AIMLOCK", Config.AimbotEnabled and "ON" or "OFF")
+end)
+
+checkKOAimbotButton = CreateButton(ButtonFrame1, "Check K.O: OFF", function()
+    Config.checkKOAimbot = not Config.checkKOAimbot
+    checkKOAimbotButton.Text = "Check K.O: " .. (Config.checkKOAimbot and "ON" or "OFF")
+    sendNotification("CHECK K.O", Config.checkKOAimbot and "ON" or "OFF")
+end)
+
+-- Config mặc định
+if Config.MacroLegitEnabled == nil then Config.MacroLegitEnabled = false end
+
+-- Nút Macro Legit
+macroLegitButton = CreateButton(ButtonFrame1, "Macro Legit: " .. (Config.MacroLegitEnabled and "ON" or "OFF"), function()
+    Config.MacroLegitEnabled = not Config.MacroLegitEnabled
+    macroLegitButton.Text = "Macro Legit: " .. (Config.MacroLegitEnabled and "ON" or "OFF")
+    sendNotification("Macro Legit", Config.MacroLegitEnabled and "Enabled" or "Disabled")
+
+    if Config.MacroLegitEnabled then
+        task.spawn(function()
+            repeat
+                game:GetService("RunService").Heartbeat:Wait()
+                game:GetService("VirtualInputManager"):SendMouseWheelEvent(0.1, 0.1, true, game)
+                game:GetService("RunService").Heartbeat:Wait()
+                game:GetService("VirtualInputManager"):SendMouseWheelEvent(0.1, 0.1, false, game)
+                game:GetService("RunService").Heartbeat:Wait()
+            until not Config.MacroLegitEnabled
+        end)
+    end
+end)
+
+-- ======= CONFIG MẶC ĐỊNH =======
+Config.AntiLockEnabled = Config.AntiLockEnabled or false
+Config.AntiLockType = Config.AntiLockType or "Behind"
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+
+local antiLockModes = {
+    Behind = true, Down = true, ForWard = true,
+    Left = true, One = true, Right = true,
+    Up = true, Zero = true
+}
+
+antiLockButton = CreateButton(ButtonFrame1, "AntiLock: " .. (Config.AntiLockEnabled and "ON" or "OFF"), function()
+    Config.AntiLockEnabled = not Config.AntiLockEnabled
+    antiLockButton.Text = "AntiLock: " .. (Config.AntiLockEnabled and "ON" or "OFF")
+    sendNotification("AntiLock", Config.AntiLockEnabled and "Enabled" or "Disabled")
+end)
+
+-- Ô nhập mode cho AntiLock
+local modeBox = Instance.new("TextBox")
+modeBox.Size = UDim2.new(1, 0, 0, 20)
+modeBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+modeBox.TextColor3 = Color3.new(1, 1, 1)
+modeBox.Font = Enum.Font.GothamBold
+modeBox.TextSize = 12
+modeBox.ClearTextOnFocus = false
+modeBox.PlaceholderText = "Enter mode (default Behind)"
+modeBox.Text = Config.AntiLockType
+Instance.new("UICorner", modeBox).CornerRadius = UDim.new(0, 4)
+modeBox.Parent = ButtonFrame1
+
+modeBox.FocusLost:Connect(function()
+    local input = modeBox.Text
+    if input == "" then
+        Config.AntiLockType = "Behind"
+    elseif antiLockModes[input] then
+        Config.AntiLockType = input
+    else
+        sendNotification("AntiLock", "Invalid mode! Keeping: " .. Config.AntiLockType)
+        modeBox.Text = Config.AntiLockType
+        return
+    end
+    sendNotification("AntiLock", "Type set to: " .. Config.AntiLockType)
+end)
+
+-- ======= LOGIC ANTILOCK =======
+if _G.__vhuyhub_antilock_conn then
+    _G.__vhuyhub_antilock_conn:Disconnect()
+end
+
+_G.__vhuyhub_antilock_conn = RunService.Heartbeat:Connect(function()
+    if not Config.AntiLockEnabled then return end
+
+    local char = LocalPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return end
+
+    local dir = Vector3.new(0, 0, -1) -- default Behind
+    local t = Config.AntiLockType
+    if     t == "Behind"  then dir = Vector3.new(0,  0, -1)
+    elseif t == "Down"    then dir = Vector3.new(0, -1,  0)
+    elseif t == "ForWard" then dir = Vector3.new(0,  0,  1)
+    elseif t == "Left"    then dir = Vector3.new(-1, 0,  0)
+    elseif t == "One"     then dir = Vector3.new(1,  1,  1)
+    elseif t == "Right"   then dir = Vector3.new(1,  0,  0)
+    elseif t == "Up"      then dir = Vector3.new(0,  1,  0)
+    elseif t == "Zero"    then dir = Vector3.new(0,  0,  0)
+    end
+
+    local oldVel = hrp.Velocity
+    hrp.Velocity = dir * (2^16)
+    RunService.RenderStepped:Wait()
+    if hrp and hrp.Parent then
+        hrp.Velocity = oldVel
+    end
+end)
+
+-- ==== CONFIG ====
+if Config.LookAtEnabled == nil then Config.LookAtEnabled = false end
+
+-- ==== UTILS ====
+local function getMyHumanoid()
+    local char = LocalPlayer.Character
+    if not char then return nil,nil,nil end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    return char, hum, hrp
+end
+
+local function getClosestSelected()
+    local _, _, myHRP = getMyHumanoid()
+    if not myHRP then return end
+    
+    local myPos, closest, minDist = myHRP.Position, nil, math.huge
+    for name, selected in pairs(Config.SelectedPlayers or {}) do
+        if selected then
+            local hrp = Players:FindFirstChild(name)
+                and Players[name].Character
+                and Players[name].Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local dist = (myPos - hrp.Position).Magnitude
+                if dist < minDist then
+                    closest, minDist = Players[name], dist
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local lastTargetName, lastNotify = nil, 0
+
+-- LOOK AT chỉ hoạt động khi Csync bật
+RunService.RenderStepped:Connect(function()
+    if not (Config.CsyncOrbitEnabled or Config.CsyncRandomEnabled) then
+        Config.LookAtEnabled = false
+        return
+    end
+    
+    Config.LookAtEnabled = true
+    local char, hum, hrp = getMyHumanoid()
+    if not (hum and hrp) then return end
+    hum.AutoRotate = false
+
+    local targetPlr = getClosestSelected()
+    if not targetPlr then return end
+
+    local thrp = targetPlr.Character and targetPlr.Character:FindFirstChild("HumanoidRootPart")
+    if not thrp then return end
+
+    local myPos = hrp.Position
+    local tPos = thrp.Position
+    local facePos = Vector3.new(tPos.X, myPos.Y, tPos.Z)
+
+    hrp.CFrame = hrp.CFrame:Lerp(CFrame.lookAt(myPos, facePos), 0.35)
+end)
+
+-- Khi chết → tự reset AutoRotate
+LocalPlayer.CharacterAdded:Connect(function()
+    task.defer(function()
+        local _, hum = getMyHumanoid()
+        if hum then hum.AutoRotate = true end
+    end)
+end)
+
+-- Auto Armor Button
+autoArmorEnabled = false
+
+autoArmorButton = CreateButton(ButtonFrame1, "Auto Armor: OFF", function()
+    autoArmorEnabled = not autoArmorEnabled
+    autoArmorButton.Text = "Auto Armor: " .. (autoArmorEnabled and "ON" or "OFF")
+    sendNotification("Auto Armor", autoArmorEnabled and "Enabled" or "Disabled")
+end)
+
+-- Auto Armor Logic
+local cloneref = getgenv().cloneref or function(...) return ... end
+local fireclickdetector = getgenv().fireclickdetector or function(...) return nil end
+local GameReference = cloneref(Game)
+
+if not GameReference:IsLoaded() then Game.Loaded:Wait() end
+
+local Workspace = cloneref(GameReference:GetService("Workspace"))
+local RunService = cloneref(GameReference:GetService("RunService"))
+local Players = cloneref(GameReference:GetService("Players"))
+
+local LocalPlayer = Players.LocalPlayer
+local LocalCharacter = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local LocalHumanoid = LocalCharacter:FindFirstChildOfClass("Humanoid") or LocalCharacter:WaitForChild("Humanoid", 1e9)
+local LocalRootPart = LocalHumanoid and LocalHumanoid.RootPart or LocalCharacter:WaitForChild("HumanoidRootPart", 1e9)
+
+local BuyMaxDistance = 1000 --// Studs \\--
+
+LocalPlayer.CharacterAdded:Connect(function(Character)
+    LocalCharacter = Character
+    LocalHumanoid = LocalCharacter:FindFirstChildOfClass("Humanoid") or LocalCharacter:WaitForChild("Humanoid", 1e9)
+    LocalRootPart = LocalHumanoid and LocalHumanoid.RootPart or LocalCharacter:WaitForChild("HumanoidRootPart", 1e9)
+end)
+
+RunService.PostSimulation:Connect(function()
+    if not autoArmorEnabled then return end
+    if not LocalCharacter or not LocalHumanoid or not LocalRootPart then return end
+
+    local Ignored = Workspace:FindFirstChild("Ignored") or Workspace:FindFirstChild("MAP") or Workspace:FindFirstChild("Blacklisted")
+    if Ignored then
+        local Shop = Ignored:FindFirstChild("Shop") or Ignored:FindFirstChild("Shops") or Ignored:FindFirstChild("Pads") or Ignored:FindFirstChild("BuyPads") or Ignored:FindFirstChild("Bought")
+        if Shop then
+            for _, Child in ipairs(Shop:GetChildren()) do
+                if Child.Name:lower():find("armor") and Child:IsA("Model") and Child:FindFirstChildOfClass("ClickDetector") then
+                    local Head = Child:FindFirstChild("Head") or Child:FindFirstChild("Part")
+                    if Head and Head:IsA("BasePart") and (Head.Position - LocalRootPart.Position).Magnitude <= BuyMaxDistance then
+                        fireclickdetector(Child:FindFirstChildOfClass("ClickDetector"))
+                    end
+                end
+            end
+        end
+    end
+end)
+
+-- ======= CONFIG MẶC ĐỊNH =======
+Config.AutoReloadEnabled = Config.AutoReloadEnabled or false
+
+-- ======= NÚT AUTO RELOAD =======
+autoReloadButton = CreateButton(ButtonFrame1, "Auto Reload: " .. (Config.AutoReloadEnabled and "ON" or "OFF"), function()
+    Config.AutoReloadEnabled = not Config.AutoReloadEnabled
+    autoReloadButton.Text = "Auto Reload: " .. (Config.AutoReloadEnabled and "ON" or "OFF")
+    sendNotification("Auto Reload", Config.AutoReloadEnabled and "Enabled" or "Disabled")
+end)
+
+-- ======= LOGIC AUTO RELOAD (theo kiểu _G.AutoReload ban đầu) =======
+if _G.__vhuyhub_autoreload_conn then
+    _G.__vhuyhub_autoreload_conn:Disconnect()
+end
+
+_G.__vhuyhub_autoreload_conn = RunService.Heartbeat:Connect(function()
+    if not Config.AutoReloadEnabled then return end
+
+    local char = LocalPlayer.Character
+    local tool = char and char:FindFirstChildWhichIsA("Tool")
+    if not tool then return end
+
+    local ammoVal = tool:FindFirstChild("Ammo") or tool:FindFirstChild("AmmoCount")
+    if ammoVal and ammoVal.Value <= 0 then
+        game:GetService("ReplicatedStorage").MainEvent:FireServer("Reload", tool)
+        task.wait(1) -- chờ reload hoàn tất
+    end
+end)
+
+triggerBotButton = CreateButton(ButtonFrame1, "TriggerBot: " .. (tbEnabled and "ON" or "OFF"), function()
+    tbEnabled = not tbEnabled
+    triggerBotButton.Text = "TriggerBot: " .. (tbEnabled and "ON" or "OFF")
+    sendNotification("TRIGGERBOT", tbEnabled and "ON" or "OFF")
+end)
+
+tpAndStompButton = CreateButton(ButtonFrame1, "TP Player", function()
+    local myPos = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") and LocalPlayer.Character.HumanoidRootPart.Position
+    if not myPos then return end
+
+    local closestPlayer, minDist = nil, math.huge
+
+    for name, selected in pairs(Config.SelectedPlayers) do
+        if selected then
+            local plr = Players:FindFirstChild(name)
+            if plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                local pos = plr.Character.HumanoidRootPart.Position
+                local dist = (myPos - pos).Magnitude
+                if dist < minDist then
+                    closestPlayer = plr
+                    minDist = dist
+                end
+            end
+        end
+    end
+
+    if closestPlayer then
+        local root = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if root then
+            local pos = closestPlayer.Character.HumanoidRootPart.Position
+            root.CFrame = CFrame.new(pos + Vector3.new(0, 0, 0))
+        end
+    end
+end)
+
+-- ========================
+-- Csync Config mặc định
+-- ========================
+if Config.CsyncRandomEnabled == nil then Config.CsyncRandomEnabled = false end
+if Config.CsyncOrbitEnabled == nil then Config.CsyncOrbitEnabled = false end
+if Config.CsyncRadius == nil then Config.CsyncRadius = 10 end
+if Config.CsyncHeight == nil then Config.CsyncHeight = 5 end
+if Config.CsyncSpeed == nil then Config.CsyncSpeed = 2 end
+
+-- ========================
+-- Hàm hỗ trợ
+-- ========================
+local function isKO(plr)
+    local char = plr and plr.Character
+    local be = char and char:FindFirstChild("BodyEffects")
+    local ko = be and be:FindFirstChild("K.O")
+    return ko and ko.Value
+end
+
+local function getClosestSelected()
+    local myChar = LocalPlayer.Character
+    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return nil end
+    local closest, minDist
+    for name, selected in pairs(Config.SelectedPlayers or {}) do
+        if selected then
+            local plr = Players:FindFirstChild(name)
+            local hrp = plr and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart")
+            if hrp then
+                local dist = (myHRP.Position - hrp.Position).Magnitude
+                if not minDist or dist < minDist then
+                    closest, minDist = plr, dist
+                end
+            end
+        end
+    end
+    return closest
+end
+
+local function getNextTarget(currentTarget)
+    local myChar = LocalPlayer.Character
+    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return nil end
+    local candidates = {}
+    for name, selected in pairs(Config.SelectedPlayers or {}) do
+        if selected then
+            local plr = Players:FindFirstChild(name)
+            if plr and plr ~= currentTarget and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                table.insert(candidates, plr)
+            end
+        end
+    end
+    table.sort(candidates, function(a, b)
+        local ha = a.Character and a.Character:FindFirstChild("HumanoidRootPart")
+        local hb = b.Character and b.Character:FindFirstChild("HumanoidRootPart")
+        if not ha or not hb then return false end
+        return (myHRP.Position - ha.Position).Magnitude < (myHRP.Position - hb.Position).Magnitude
+    end)
+    return candidates[1]
+end
+
+-- ========================
+-- Nút GUI
+-- ========================
+csyncRandomButton = CreateButton(ButtonFrame1, "Csync Random: " .. (Config.CsyncRandomEnabled and "ON" or "OFF"), function()
+    Config.CsyncRandomEnabled = not Config.CsyncRandomEnabled
+    csyncRandomButton.Text = "Csync Random: " .. (Config.CsyncRandomEnabled and "ON" or "OFF")
+    sendNotification("Csync Random", Config.CsyncRandomEnabled and "Enabled" or "Disabled")
+end)
+
+csyncOrbitButton = CreateButton(ButtonFrame1, "Csync Orbit: " .. (Config.CsyncOrbitEnabled and "ON" or "OFF"), function()
+    Config.CsyncOrbitEnabled = not Config.CsyncOrbitEnabled
+    csyncOrbitButton.Text = "Csync Orbit: " .. (Config.CsyncOrbitEnabled and "ON" or "OFF")
+    sendNotification("Csync Orbit", Config.CsyncOrbitEnabled and "Enabled" or "Disabled")
+end)
+
+-- Frame nhập Radius, Height, Speed
+local boxFrame = Instance.new("Frame")
+boxFrame.Size = UDim2.new(1, 0, 0, 40)
+boxFrame.BackgroundTransparency = 1
+boxFrame.Parent = ButtonFrame1
+
+local function createLabeledBox(parent, labelText, default, onChange, pos)
+    local container = Instance.new("Frame")
+    container.Size = UDim2.new(1/3 - 0.02, 0, 1, 0)
+    container.Position = pos
+    container.BackgroundTransparency = 1
+    container.Parent = parent
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 10)
+    label.BackgroundTransparency = 1
+    label.Text = labelText
+    label.TextSize = 10
+    label.TextColor3 = Color3.fromRGB(180, 180, 180)
+    label.Font = Enum.Font.Gotham
+    label.Parent = container
+
+    local tb = Instance.new("TextBox")
+    tb.Size = UDim2.new(1, 0, 0, 20)
+    tb.Position = UDim2.new(0, 0, 0, 12)
+    tb.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    tb.TextColor3 = Color3.new(1, 1, 1)
+    tb.Text = tostring(default)
+    tb.PlaceholderText = labelText
+    tb.ClearTextOnFocus = false
+    tb.Font = Enum.Font.GothamBold
+    tb.TextSize = 12
+    tb.Parent = container
+    Instance.new("UICorner", tb).CornerRadius = UDim.new(0, 4)
+
+    tb.FocusLost:Connect(function()
+        local num = tonumber(tb.Text)
+        if num then
+            onChange(num)
+        else
+            tb.Text = tostring(default)
+        end
+    end)
+end
+
+createLabeledBox(boxFrame, "Radius", Config.CsyncRadius, function(v) Config.CsyncRadius = v end, UDim2.new(0, 0, 0, 0))
+createLabeledBox(boxFrame, "Height", Config.CsyncHeight, function(v) Config.CsyncHeight = v end, UDim2.new(1/3, 0, 0, 0))
+createLabeledBox(boxFrame, "Speed",  Config.CsyncSpeed,  function(v) Config.CsyncSpeed  = v end, UDim2.new(2/3, 0, 0, 0))
+
+local currentTarget = nil
+local csyncPaused = false
+
+if _G.VHUB_CSYNC_LOOP then _G.VHUB_CSYNC_LOOP:Disconnect() end
+_G.VHUB_CSYNC_LOOP = RunService.Heartbeat:Connect(function()
+    -- Nếu chưa có target hoặc target không tồn tại → tìm mới
+    if not currentTarget or not currentTarget.Parent then
+        currentTarget = getClosestSelected()
+    end
+
+    -- Nếu đang pause thì thử tìm lại target để resume
+    if csyncPaused then
+        if currentTarget then
+            csyncPaused = false
+        else
+            return
+        end
+    end
+
+    -- Nếu vẫn không có target thì dừng (pause)
+    if not currentTarget then
+        csyncPaused = true
+        return
+    end
+
+    -- Nếu target bị KO → đổi target hoặc pause
+    if isKO(currentTarget) then
+        local nextTarget = getNextTarget(currentTarget)
+        if nextTarget then
+            currentTarget = nextTarget
+        else
+            csyncPaused = true
+            return
+        end
+    end
+
+    -- Thực hiện Csync nếu không pause
+    if not csyncPaused then
+        local hrp = currentTarget.Character and currentTarget.Character:FindFirstChild("HumanoidRootPart")
+        local myHRP = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp or not myHRP then return end
+
+        if Config.CsyncOrbitEnabled then
+            local t = tick() * Config.CsyncSpeed
+            local pos = hrp.Position + Vector3.new(
+                math.cos(t) * Config.CsyncRadius,
+                Config.CsyncHeight,
+                math.sin(t) * Config.CsyncRadius
+            )
+            myHRP.CFrame = CFrame.new(pos, hrp.Position)
+        elseif Config.CsyncRandomEnabled then
+            local offset = Vector3.new(
+                math.random(-Config.CsyncRadius, Config.CsyncRadius),
+                Config.CsyncHeight,
+                math.random(-Config.CsyncRadius, Config.CsyncRadius)
+            )
+            myHRP.CFrame = CFrame.new(hrp.Position + offset, hrp.Position)
+        end
+    end
+end)
+
+-- ========================
+-- Khi chết → tắt Csync + Look At
+-- ========================
+LocalPlayer.CharacterAdded:Connect(function()
+    task.wait(1)
+    if Config.CsyncOrbitEnabled or Config.CsyncRandomEnabled then
+        Config.CsyncOrbitEnabled = false
+        Config.CsyncRandomEnabled = false
+        csyncOrbitButton.Text = "Csync Orbit: OFF"
+        csyncRandomButton.Text = "Csync Random: OFF"
+        sendNotification("Csync", "Đã tắt vì bạn chết")
+    end
+end)
+
+-- Nút cho trang 2 (chia trái phải)
+local customFovEnabled = false
+local defaultFov = Workspace.CurrentCamera.FieldOfView
+
+customFovButton = CreateButton(ButtonFrame2Left, "Custom FOV: OFF", function()
+    customFovEnabled = not customFovEnabled
+    customFovButton.Text = "Custom FOV: " .. (customFovEnabled and "ON" or "OFF")
+
+    if customFovEnabled then
+        local num = tonumber(fovBox.Text)
+        if num and num >= 40 and num <= 120 then
+            Workspace.CurrentCamera.FieldOfView = num
+            sendNotification("Custom FOV", "Đã đặt FOV thành " .. num)
+        else
+            sendNotification("Custom FOV", "Hãy nhập giá trị 40-120 vào ô FOV")
+        end
+    else
+        Workspace.CurrentCamera.FieldOfView = defaultFov
+    end
+end)
+
+-- Ô nhập giá trị FOV
+local fovBox = Instance.new("TextBox")
+fovBox.Size = UDim2.new(1, -10, 0, 25)
+fovBox.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+fovBox.BackgroundTransparency = 0.2
+fovBox.TextColor3 = Color3.fromRGB(0, 0, 0)
+fovBox.TextSize = 14
+fovBox.Font = Enum.Font.Gotham
+fovBox.PlaceholderText = "Nhập FOV (mặc định: "..defaultFov..")"
+fovBox.ClearTextOnFocus = false
+fovBox.Parent = ButtonFrame2Left
+Instance.new("UICorner", fovBox).CornerRadius = UDim.new(0, 6)
+
+fovBox:GetPropertyChangedSignal("Text"):Connect(function()
+    if customFovEnabled then
+        local num = tonumber(fovBox.Text)
+        if num and num >= 40 and num <= 120 then
+            Workspace.CurrentCamera.FieldOfView = num
+            sendNotification("Custom FOV", "Đã đặt FOV thành " .. num)
+        end
+    end
+end)
+
+-- Config
+getgenv().KorAnimEnabled = true
+getgenv().RightUpperLegAccessories = {
+    {id = 18457575895}, -- accessory ID
+}
+getgenv().KorAnimDelay = 1 -- thời gian chờ sau khi spawn trước khi chỉnh
+
+local function hideRightLegAndAddAccessories(character)
+    local rightUpperLeg = character:FindFirstChild("RightUpperLeg")
+    if rightUpperLeg then
+        -- Ẩn Upper Leg
+        rightUpperLeg.Transparency = 1
+
+        -- Xóa Lower Leg & Foot
+        local rightLowerLeg = character:FindFirstChild("RightLowerLeg")
+        local rightFoot = character:FindFirstChild("RightFoot")
+        if rightLowerLeg then rightLowerLeg:Destroy() end
+        if rightFoot then rightFoot:Destroy() end
+
+        -- Gắn accessories
+        for _, accessoryData in ipairs(getgenv().RightUpperLegAccessories) do
+            local accessory = game:GetObjects("rbxassetid://" .. tostring(accessoryData.id))[1]
+            if accessory then
+                accessory.Parent = game.Workspace
+                local handle = accessory:FindFirstChild("Handle")
+                if handle then
+                    handle.CFrame = rightUpperLeg.CFrame
+                    local weld = Instance.new("Weld")
+                    weld.Part0 = handle
+                    weld.Part1 = rightUpperLeg
+                    weld.C0 = CFrame.new(0, -0.12, 0)
+                    weld.Parent = handle
+                    accessory.Parent = character
+                end
+            end
+        end
+    end
+end
+
+local function applyKorAnim(character)
+    task.wait(getgenv().KorAnimDelay)
+    hideRightLegAndAddAccessories(character)
+end
+
+-- Theo dõi khi spawn nhân vật mới
+game.Players.LocalPlayer.CharacterAdded:Connect(function(char)
+    applyKorAnim(char)
+end)
+
+-- Nếu đang sống thì áp dụng luôn
+if game.Players.LocalPlayer.Character then
+    applyKorAnim(game.Players.LocalPlayer.Character)
+end
+
+-- Đổi animation liên tục
+game:GetService("RunService").Stepped:Connect(function()
+    if not getgenv().KorAnimEnabled then return end
+    local char = game.Players.LocalPlayer.Character
+    if char and char:FindFirstChild("Animate") then
+        local anim = char.Animate
+        anim.run.RunAnim.AnimationId = "http://www.roblox.com/asset/?id=616163682"
+        anim.jump.JumpAnim.AnimationId = "http://www.roblox.com/asset/?id=10921242013"
+        anim.fall.FallAnim.AnimationId = "http://www.roblox.com/asset/?id=707829716"
+    end
+end)
+
+fullbrightButton = CreateButton(ButtonFrame2Left, "Fullbright: OFF", function()
+    Config.FullbrightEnabled = not Config.FullbrightEnabled
+    if Config.FullbrightEnabled then
+        Lighting.Brightness = 2
+        Lighting.GlobalShadows = false
+        Lighting.FogEnd = 999999
+        Lighting.Ambient = Color3.fromRGB(255, 255, 255)
+        Lighting.OutdoorAmbient = Color3.fromRGB(255, 255, 255)
+        Lighting.ClockTime = 12
+    else
+        Lighting.Brightness = oldLighting.Brightness
+        Lighting.GlobalShadows = oldLighting.GlobalShadows
+        Lighting.FogEnd = oldLighting.FogEnd
+        Lighting.Ambient = oldLighting.Ambient
+        Lighting.OutdoorAmbient = oldLighting.OutdoorAmbient
+        Lighting.ClockTime = oldLighting.ClockTime
+    end
+    fullbrightButton.Text = "Fullbright: " .. (Config.FullbrightEnabled and "ON" or "OFF")
+    sendNotification("FULLBRIGHT", Config.FullbrightEnabled and "ON" or "OFF")
+end)
+
+-- Auto Wallhop Config
+if Config.AutoWallhopEnabled == nil then Config.AutoWallhopEnabled = false end
+
+-- Nút bật/tắt
+autoWallhopButton = CreateButton(ButtonFrame2Left, "Auto Wallhop: " .. (Config.AutoWallhopEnabled and "ON" or "OFF"), function()
+    Config.AutoWallhopEnabled = not Config.AutoWallhopEnabled
+    autoWallhopButton.Text = "Auto Wallhop: " .. (Config.AutoWallhopEnabled and "ON" or "OFF")
+    sendNotification("Auto Wallhop", Config.AutoWallhopEnabled and "Enabled" or "Disabled")
+end)
+
+-- Services
+local Workspace = game:GetService("Workspace")
+local RunService = game:GetService("RunService")
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+
+-- Biến cập nhật khi respawn
+local character, humanoid, rootPart
+
+local function updateCharacterRefs()
+    character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    humanoid = character:WaitForChild("Humanoid")
+    rootPart = character:WaitForChild("HumanoidRootPart")
+end
+
+updateCharacterRefs()
+LocalPlayer.CharacterAdded:Connect(updateCharacterRefs)
+
+-- Check tường trước mặt
+local function isWallInFront()
+    if not rootPart then return false end
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterDescendantsInstances = {character}
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+
+    local origin = rootPart.Position + Vector3.new(0, 2, 0) -- raycast từ ngực
+    local direction = rootPart.CFrame.LookVector * 2 -- khoảng cách 2 studs
+    local result = Workspace:Raycast(origin, direction, raycastParams)
+
+    return result and result.Instance ~= nil
+end
+
+-- Thực hiện wallhop
+local isPerformingWallHop = false
+local function performWallHop()
+    if not Config.AutoWallhopEnabled or isPerformingWallHop or not humanoid or not rootPart then return end
+    isPerformingWallHop = true
+
+    while Config.AutoWallhopEnabled and isWallInFront() do
+        humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        rootPart.AssemblyLinearVelocity = Vector3.new(0, 60, 0) -- lực nhảy
+        rootPart.CFrame = rootPart.CFrame * CFrame.Angles(0, math.rad(-35), 0)
+        task.wait(0.5)
+    end
+
+    isPerformingWallHop = false
+end
+
+-- Loop
+RunService.Heartbeat:Connect(function()
+    if Config.AutoWallhopEnabled then
+        performWallHop()
+    end
+end)
+
+-- Config mặc định
+if Config.RainbowHitEffectEnabled == nil then Config.RainbowHitEffectEnabled = true end
+
+-- Nút bật/tắt Rainbow Hit Effect
+rainbowHitButton = CreateButton(ButtonFrame2Left, "Rainbow Hit Effect: " .. (Config.RainbowHitEffectEnabled and "ON" or "OFF"), function()
+    Config.RainbowHitEffectEnabled = not Config.RainbowHitEffectEnabled
+    rainbowHitButton.Text = "Rainbow Hit Effect: " .. (Config.RainbowHitEffectEnabled and "ON" or "OFF")
+    sendNotification("Rainbow Hit Effect", Config.RainbowHitEffectEnabled and "Enabled" or "Disabled")
+end)
+
+-- Hàm tạo rainbow color theo thời gian
+local function rainbowColor()
+    local t = tick() % 5 / 5
+    return Color3.fromHSV(t, 1, 1)
+end
+
+-- Theo dõi máu player
+local lastHealth = {}
+
+RunService.Heartbeat:Connect(function()
+    if not Config.RainbowHitEffectEnabled then return end
+
+    for name, selected in pairs(Config.SelectedPlayers or {}) do
+        if selected then
+            local plr = Players:FindFirstChild(name)
+            local hum = plr and plr.Character and plr.Character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                local current = hum.Health
+                local last = lastHealth[name] or current
+                if current < last then
+                    -- Bị mất máu → tạo hiệu ứng highlight rainbow
+                    local highlight = Instance.new("Highlight")
+                    highlight.Parent = plr.Character
+                    highlight.Adornee = plr.Character
+                    highlight.FillTransparency = 1
+                    highlight.OutlineTransparency = 0
+                    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+
+                    -- Rainbow loop trong 1 giây
+                    task.spawn(function()
+                        local start = tick()
+                        while tick() - start < 1 do
+                            highlight.OutlineColor = rainbowColor()
+                            task.wait(0.05)
+                        end
+                        highlight:Destroy()
+                    end)
+                end
+                lastHealth[name] = current
+            end
+        end
+    end
+end)
+
+infiniteJumpButton = CreateButton(ButtonFrame2Left, "Infinite Jump: OFF", function()
+    Config.infiniteJumpEnabled = not Config.infiniteJumpEnabled
+    sendNotification("INFINITIEJUMP", Config.infiniteJumpEnabled and "ON" or "OFF")
+    infiniteJumpButton.Text = "Infinite Jump: " .. (Config.infiniteJumpEnabled and "ON" or "OFF")
+end)
+
+-- JumpRequest chạy khi bấm Space (PC) hoặc nút nhảy mặc định (Mobile)
+UserInputService.JumpRequest:Connect(function()
+    if Config.infiniteJumpEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChildOfClass("Humanoid") then
+        LocalPlayer.Character:FindFirstChildOfClass("Humanoid"):ChangeState(Enum.HumanoidStateType.Jumping)
+    end
+end)
+
+local antiAfkEnabled = false
+local antiAfkLoop
+
+antiAfkButton = CreateButton(ButtonFrame2Left, "Anti AFK: OFF", function()
+    antiAfkEnabled = not antiAfkEnabled
+    antiAfkButton.Text = "Anti AFK: " .. (antiAfkEnabled and "ON" or "OFF")
+    sendNotification("ANTI AFK", antiAfkEnabled and "ON" or "OFF")
+
+    if antiAfkEnabled then
+        -- Vòng lặp tự nhảy mỗi 60 giây
+        antiAfkLoop = task.spawn(function()
+            while antiAfkEnabled do
+                task.wait(60) -- Đợi 60 giây
+                pcall(function()
+                    local hum = game.Players.LocalPlayer.Character and game.Players.LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                    end
+                end)
+            end
+        end)
+    else
+        if antiAfkLoop then
+            task.cancel(antiAfkLoop)
+            antiAfkLoop = nil
+        end
+    end
+end)
+
+noclipButton = CreateButton(ButtonFrame2Left, "Noclip: OFF", function()
+    Config.NoclipEnabled = not Config.NoclipEnabled
+    
+    if Config.NoclipEnabled then
+        if noclipConnection then noclipConnection:Disconnect() end
+        noclipConnection = RunService.Stepped:Connect(function()
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChildOfClass("Humanoid") then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    else
+        if noclipConnection then
+            noclipConnection:Disconnect()
+            noclipConnection = nil
+        end
+    end
+
+    sendNotification("NOCLIP", Config.NoclipEnabled and "ON" or "OFF")
+    noclipButton.Text = "Noclip: " .. (Config.NoclipEnabled and "ON" or "OFF")
+end)
+
+-- Đảm bảo noclip vẫn bật khi respawn
+LocalPlayer.CharacterAdded:Connect(function()
+    if Config.NoclipEnabled then
+        task.wait(0.5) -- đợi nhân vật load
+        noclipConnection = RunService.Stepped:Connect(function()
+            local char = LocalPlayer.Character
+            if char and char:FindFirstChildOfClass("Humanoid") then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local RunService = game:GetService("RunService")
+
+-- ID animation
+local animations = {
+    happier = "http://www.roblox.com/asset/?id=15609995579",
+    happy   = "http://www.roblox.com/asset/?id=14352343065",
+}
+
+local currentTrack = nil
+
+-- Hàm dừng animation
+local function stopAnimation()
+    if currentTrack then
+        currentTrack:Stop()
+        currentTrack = nil
+    end
+end
+
+-- Hàm phát animation
+local function playAnimation(animId)
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChildOfClass("Humanoid") then return end
+    local hum = char:FindFirstChildOfClass("Humanoid")
+
+    -- Đang di chuyển thì không phát
+    if hum.MoveDirection.Magnitude > 0 then return end
+
+    -- Ngừng animation cũ nếu có
+    stopAnimation()
+
+    -- Tạo animator nếu chưa có
+    local animator = hum:FindFirstChildOfClass("Animator") or Instance.new("Animator", hum)
+
+    local anim = Instance.new("Animation")
+    anim.AnimationId = animId
+    local track = animator:LoadAnimation(anim)
+    track:Play()
+    currentTrack = track
+end
+
+-- Khi respawn vẫn dùng được
+LocalPlayer.CharacterAdded:Connect(function()
+    currentTrack = nil
+end)
+
+-- Liên tục kiểm tra nếu bắt đầu di chuyển thì dừng animation
+RunService.RenderStepped:Connect(function()
+    local char = LocalPlayer.Character
+    if char and currentTrack then
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if hum and hum.MoveDirection.Magnitude > 0 then
+            stopAnimation()
+        end
+    end
+end)
+
+-- Tạo 2 nút
+CreateButton(ButtonFrame2Right, "Happier Jump", function()
+    playAnimation(animations.happier)
+end)
+
+CreateButton(ButtonFrame2Right, "Happy", function()
+    playAnimation(animations.happy)
+end)
+
+local function giveClickTpTool()
+    if clickTpTool then clickTpTool:Destroy() end
+    clickTpTool = Instance.new("Tool")
+    clickTpTool.RequiresHandle = false
+    clickTpTool.Name = "ClickTP"
+    clickTpTool.Parent = LocalPlayer.Backpack
+
+    clickTpTool.Activated:Connect(function()
+        local mouse = LocalPlayer:GetMouse()
+        if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+            if mouse and mouse.Hit then
+                local targetPos = mouse.Hit.p + Vector3.new(0, 3, 0) -- cách mặt đất 3 stud
+                LocalPlayer.Character.HumanoidRootPart.CFrame = CFrame.new(targetPos)
+            end
+        end
+    end)
+end
+
+-- Nút bật/tắt
+clickTpButton = CreateButton(ButtonFrame2Right, "Click TP: OFF", function()
+    Config.clickTpEnabled = not Config.clickTpEnabled
+    sendNotification("GIVECLICKTOOL", Config.clickTpEnabled and "ON" or "OFF")
+    clickTpButton.Text = "Click TP: " .. (Config.clickTpEnabled and "ON" or "OFF")
+    if Config.clickTpEnabled then
+        giveClickTpTool()
+        sendNotification("Click TP", "Đã cấp tool Click TP vào Backpack!")
+    else
+        if clickTpTool then
+            clickTpTool:Destroy()
+            clickTpTool = nil
+        end
+    end
+end)
+
+-- Khi respawn thì gắn lại tool nếu đang bật
+LocalPlayer.CharacterAdded:Connect(function()
+    if Config.clickTpEnabled then
+        task.wait(0.5) -- đợi nhân vật load
+        giveClickTpTool()
+    end
+end)
+
+saveWaypointButton = CreateButton(ButtonFrame2Right, "Save Waypoint", function()
+    if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        savedWaypoint = LocalPlayer.Character.HumanoidRootPart.CFrame
+        sendNotification("Waypoint", "Đã lưu vị trí hiện tại!")
+    else
+        sendNotification("Waypoint", "Không thể lưu vị trí!")
+    end
+end)
+
+tpWaypointButton = CreateButton(ButtonFrame2Right, "TP to Waypoint", function()
+    if savedWaypoint and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        LocalPlayer.Character.HumanoidRootPart.CFrame = savedWaypoint
+        sendNotification("Waypoint", "Đã teleport tới vị trí đã lưu!")
+    else
+        sendNotification("Waypoint", "Chưa có vị trí được lưu!")
+    end
+end)
+
+-- Config mặc định
+if Config.SpinbotEnabled == nil then Config.SpinbotEnabled = false end
+if Config.SpinbotSpeed == nil then Config.SpinbotSpeed = 450 end
+
+-- Nút bật/tắt Spinbot
+spinbotButton = CreateButton(ButtonFrame2Right, "Spinbot: " .. (Config.SpinbotEnabled and "ON" or "OFF"), function()
+    Config.SpinbotEnabled = not Config.SpinbotEnabled
+    spinbotButton.Text = "Spinbot: " .. (Config.SpinbotEnabled and "ON" or "OFF")
+    sendNotification("Spinbot", Config.SpinbotEnabled and "Enabled" or "Disabled")
+end)
+
+-- Ô nhập Speed
+local spinbotSpeedBox = Instance.new("TextBox")
+spinbotSpeedBox.Size = UDim2.new(1, 0, 0, 20)
+spinbotSpeedBox.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+spinbotSpeedBox.TextColor3 = Color3.new(1, 1, 1)
+spinbotSpeedBox.Text = tostring(Config.SpinbotSpeed)
+spinbotSpeedBox.PlaceholderText = "Speed"
+spinbotSpeedBox.ClearTextOnFocus = false
+spinbotSpeedBox.Font = Enum.Font.GothamBold
+spinbotSpeedBox.TextSize = 12
+spinbotSpeedBox.Parent = ButtonFrame2Right
+Instance.new("UICorner", spinbotSpeedBox).CornerRadius = UDim.new(0, 4)
+
+spinbotSpeedBox.FocusLost:Connect(function()
+    local num = tonumber(spinbotSpeedBox.Text)
+    if num then
+        Config.SpinbotSpeed = num
+    else
+        spinbotSpeedBox.Text = tostring(Config.SpinbotSpeed)
+    end
+end)
+
+-- Logic Spinbot
+RunService.RenderStepped:Connect(function(delta)
+    if Config.SpinbotEnabled then
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChild("Humanoid")
+        if hrp and hum then
+            hrp.CFrame = hrp.CFrame * CFrame.Angles(0, math.rad(Config.SpinbotSpeed) * delta, 0)
+            hum.AutoRotate = false
+        end
+    else
+        local hum = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Humanoid")
+        if hum then hum.AutoRotate = true end
+    end
+end)
+
+-- Anti Fling Button (Page 2, Right Side)
+antiFlingEnabled = false
+
+antiFlingButton = CreateButton(ButtonFrame2Right, "Anti Fling: OFF", function()
+    antiFlingEnabled = not antiFlingEnabled
+    antiFlingButton.Text = "Anti Fling: " .. (antiFlingEnabled and "ON" or "OFF")
+    sendNotification("Anti Fling", antiFlingEnabled and "Enabled" or "Disabled")
+end)
+
+-- Anti Fling Logic
+if _G.__antifling_conn then
+    _G.__antifling_conn:Disconnect()
+end
+
+_G.__antifling_conn = RunService.Heartbeat:Connect(function()
+    if not antiFlingEnabled then return end
+    pcall(function()
+        for _, plr in pairs(Players:GetPlayers()) do
+            if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+                local hrp = plr.Character.HumanoidRootPart
+                hrp.Velocity = Vector3.new(0, 0, 0)
+                hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+            end
+        end
+    end)
+end)
+
+local hiddenFling = false
+local flingPower = 55000
+local movel = 0.1
+
+local function flingLoop()
+    local lp = Players.LocalPlayer
+    local hrp, c, vel
+
+    task.spawn(function()
+        while true do
+            RunService.Heartbeat:Wait()
+            if hiddenFling then
+                while hiddenFling and not (c and c.Parent and hrp and hrp.Parent) do
+                    RunService.Heartbeat:Wait()
+                    c = lp.Character
+                    hrp = c and c:FindFirstChild("HumanoidRootPart")
+                end
+
+                if hiddenFling and hrp then
+                    vel = hrp.Velocity
+                    hrp.Velocity = vel * flingPower + Vector3.new(0, flingPower, 0)
+                    RunService.RenderStepped:Wait()
+                    if hrp.Parent then
+                        hrp.Velocity = vel
+                    end
+                    RunService.Stepped:Wait()
+                    if hrp.Parent then
+                        hrp.Velocity = vel + Vector3.new(0, movel, 0)
+                        movel = movel * -1
+                    end
+                end
+            end
+        end
+    end)
+end
+
+flingLoop()
+
+flintTouchButton = CreateButton(ButtonFrame2Right, "FlintTouch: OFF", function()
+    hiddenFling = not hiddenFling
+    sendNotification("FLINGTOUCH", hiddenFling and "ON" or "OFF")
+    flintTouchButton.Text = "FlintTouch: " .. (hiddenFling and "ON" or "OFF")
+end)
+
+local function FlingAll()
+    hiddenFling = true
+    flintTouchButton.Text = "FlintTouch: ON"
+    local myRoot = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+    if not myRoot then return end
+
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local targetRoot = plr.Character.HumanoidRootPart
+            for i = 1, 10 do  -- Di chuyển đi lại 5 lần để fling hiệu quả
+                myRoot.CFrame = targetRoot.CFrame + Vector3.new(math.random(-2, 2), 0, math.random(-2, 2))
+                task.wait(0.05)
+                myRoot.CFrame = targetRoot.CFrame + Vector3.new(math.random(-2, 2), 0, math.random(-2, 2))
+                task.wait(0.05)
+            end
+        end
+    end
+end
+
+flingAllButton = CreateButton(ButtonFrame2Right, "Fling All", FlingAll)
+
+-- ESP
+local espGui = Instance.new("ScreenGui")
+espGui.Name = "SafeESP"
+espGui.ResetOnSpawn = false
+espGui.IgnoreGuiInset = true
+espGui.Parent = PlayerGui
+
+local ESPs = {}
+
+local function IsValidTarget(player)
+    if not player 
+        or not player.Character 
+        or not player.Character:FindFirstChild("Humanoid") 
+        or not player.Character:FindFirstChild("HumanoidRootPart") 
+        or player.Character.Humanoid.Health <= 0 then
+        return false
+    end
+
+    -- Kiểm tra trạng thái K.O nếu checkKOAimbot được bật
+    if Config.checkKOAimbot then
+        local bodyEffects = player.Character:FindFirstChild("BodyEffects")
+        local koValue = bodyEffects and bodyEffects:FindFirstChild("K.O")
+        if koValue and koValue.Value then
+            return false -- Bỏ qua người chơi nếu họ bị K.O
+        end
+    end
+
+    -- Kiểm tra trạng thái Grab
+    if player.Character:FindFirstChild("GRABBING_CONSTRAINT") then
+        return false -- Bỏ qua nếu đang bị grab
+    end
+
+    return true
+end
+
+local function CreateESP(player)
+    if ESPs[player] or player == LocalPlayer then return end
+    local label = Instance.new("TextLabel")
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255, 179, 186)
+    label.TextSize = 16
+    label.Font = Enum.Font.GothamBold
+    label.Text = player.DisplayName
+    label.TextStrokeTransparency = 0.5
+    label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+    label.Size = UDim2.new(0, 200, 0, 20)
+    label.AnchorPoint = Vector2.new(0.5, 0.5)
+    label.Position = UDim2.new(0.5, 0, 0.5, 0)
+    label.Visible = false
+    label.Parent = espGui
+
+    local highlight = Instance.new("Highlight")
+    highlight.Enabled = false
+    highlight.FillTransparency = 0.6
+    highlight.OutlineTransparency = 0.2
+    highlight.FillColor = Color3.fromRGB(255, 179, 186)
+    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+    highlight.Adornee = player.Character
+    highlight.Parent = espGui
+
+    ESPs[player] = { label = label, highlight = highlight }
+end
+
+local function RemoveESP(player)
+    if ESPs[player] then
+        pcall(function()
+            ESPs[player].label:Destroy()
+            ESPs[player].highlight:Destroy()
+        end)
+        ESPs[player] = nil
+    end
+end
+
+local function UpdateESP()
+    if not Config.ESPEnabled then
+        for _, v in pairs(ESPs) do
+            v.label.Visible = false
+            v.highlight.Enabled = false
+        end
+        return
+    end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and IsValidTarget(player) then
+            local character = player.Character
+            local head = character:FindFirstChild("Head")
+            if head then
+                CreateESP(player)
+                local headPos = head.Position
+                local screenPos, onScreen = Camera:WorldToViewportPoint(headPos)
+                local esp = ESPs[player]
+                if esp then
+                    local isSelected = Config.SelectedPlayers[player.Name]
+                    esp.label.TextColor3 = isSelected and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(255, 255, 255)
+                    esp.highlight.FillColor = isSelected and Color3.fromRGB(255, 100, 100) or Color3.fromRGB(255, 255, 255)
+                    if onScreen then
+                        esp.label.Visible = true
+                        esp.label.Position = UDim2.new(0, screenPos.X, 0, screenPos.Y - 20)
+                        esp.highlight.Enabled = true
+                    else
+                        esp.label.Visible = false
+                        esp.highlight.Enabled = false
+                    end
+                end
+            else
+                RemoveESP(player)
+            end
+        else
+            RemoveESP(player)
+        end
+    end
+end
+
+local function UpdateSpeed()
+    if Config.SpeedEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local root = LocalPlayer.Character.HumanoidRootPart
+        local humanoid = LocalPlayer.Character.Humanoid
+        local moveDirection = humanoid.MoveDirection
+        local speedAmount = Config.SpeedAmount / 8
+        root.CFrame = root.CFrame + moveDirection * speedAmount
+    end
+end
+
+local function UpdateFly(deltaTime)
+    if Config.FlyEnabled and LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        local root = LocalPlayer.Character.HumanoidRootPart
+        local moveDirection = LocalPlayer.Character.Humanoid.MoveDirection
+        local flySpeed = Config.FlySpeed
+        local vertical = UserInputService:IsKeyDown(Enum.KeyCode.Space) and flySpeed / 8 or UserInputService:IsKeyDown(Enum.KeyCode.LeftControl) and -flySpeed / 8 or 0
+        root.CFrame = root.CFrame + moveDirection * deltaTime * flySpeed * 10
+        root.CFrame = root.CFrame + Vector3.new(0, vertical, 0)
+        root.Velocity = root.Velocity * Vector3.new(1, 0, 1) + Vector3.new(0, 1.9, 0)
+    end
+end
+
+local function UpdatePlayerList()
+    for _, cd in pairs(PlayerList:GetChildren()) do
+        if cd:IsA("TextButton") then cd:Destroy() end
+    end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local button = Instance.new("TextButton")
+            button.Size = UDim2.new(1, -4, 0, 20)
+            button.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+            button.BackgroundTransparency = 0.2
+            button.TextColor3 = Color3.fromRGB(0, 0, 0)
+            button.TextSize = 14
+            button.Font = Enum.Font.Gotham
+            button.AutoButtonColor = false
+            button.Parent = PlayerList
+            local function UpdateButtonText()
+                local isSelected = Config.SelectedPlayers[player.Name]
+                button.Text = (isSelected and "✓ " or "") .. player.DisplayName
+            end
+            button.MouseButton1Click:Connect(function()
+                Config.SelectedPlayers[player.Name] = not Config.SelectedPlayers[player.Name]
+                UpdateButtonText()
+            end)
+            animateButton(button)
+            UpdateButtonText()
+        end
+    end
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode.Y then
+        autoSelect = not autoSelect
+        if autoSelect then
+            for _, player in pairs(Players:GetPlayers()) do
+                if player ~= LocalPlayer then
+                    Config.SelectedPlayers[player.Name] = true
+                end
+            end
+        else
+            Config.SelectedPlayers = {}
+        end
+        UpdatePlayerList()
+    end
+end)
+
+local hitParts = {
+    "Head", "HumanoidRootPart", "UpperTorso", "LowerTorso", "LeftUpperArm", "LeftLowerArm", "LeftHand",
+    "RightUpperArm", "RightLowerArm", "RightHand", "LeftUpperLeg", "LeftLowerLeg", "LeftFoot",
+    "RightUpperLeg", "RightLowerLeg", "RightFoot", "Torso", "Left Arm", "Right Arm", "Left Leg", "Right Leg"
+}
+
+local function validPart(p)
+    if not p or not p.Parent or not p.Parent:FindFirstChild("Humanoid") then return false end
+    local player = Players:GetPlayerFromCharacter(p.Parent)
+    if not player or not Config.SelectedPlayers[player.Name] then return false end
+    for _, n in ipairs(hitParts) do
+        if p.Name:lower() == n:lower() then return true end
+    end
+    return false
+end
+
+local function distToCursor(part)
+    local v, vis = Camera:WorldToViewportPoint(part.Position)
+    if not vis then return math.huge end
+    local m = UserInputService.TouchEnabled and Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2) or UserInputService:GetMouseLocation()
+    return (Vector2.new(v.X, v.Y) - Vector2.new(m.X, m.Y)).Magnitude
+end
+
+local function click()
+    if UserInputService.TouchEnabled then
+        local touchPos = UserInputService:GetMouseLocation()
+        VirtualInputManager:SendTouchEvent(0, Enum.UserInputState.Begin, touchPos)
+        task.wait()
+        VirtualInputManager:SendTouchEvent(0, Enum.UserInputState.End, touchPos)
+    else
+        if mouse1press then
+            mouse1press()
+            mouse1release()
+        elseif mouse1click then
+            mouse1click()
+        end
+    end
+end
+
+local function GetBestTargetPart()
+    local bestPart, bestDist = nil, fovRadius
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and Config.SelectedPlayers[plr.Name] and IsValidTarget(plr) and plr.Character then
+            for _, partName in ipairs(hitParts) do
+                local part = plr.Character:FindFirstChild(partName)
+                if part and part:IsA("BasePart") then
+                    local dist = distToCursor(part)
+                    if dist < bestDist then
+                        bestPart = part
+                        bestDist = dist
+                    end
+                end
+            end
+        end
+    end
+    return bestPart
+end
+
+getgenv().Aimbot = {
+    Status = true,
+    Hitpart = "Head",
+}
+
+local function GetPing()
+    if Config.CustomPing then
+        return Config.CustomPing
+    end
+    local stats = game:GetService("Stats"):FindFirstChild("Network")
+    local data = stats and stats:FindFirstChild("DataPing")
+    return data and math.clamp(data:GetValue(), 10, 300) or 40
+end
+
+local function GetPredictedPosition(part)
+    if not part or not part:IsA("BasePart") then return part.Position end
+    local velocity = part.Velocity
+    local origin = Camera.CFrame.Position
+    local distance = (part.Position - origin).Magnitude
+    local ping = GetPing()
+    local delay = ping / 1000
+    local distanceFactor = math.clamp(distance / 100, 1, 3)
+    return part.Position + velocity * delay * distanceFactor
+end
+
+local function IsObstructed(origin, targetPos)
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+    raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+    local result = Workspace:Raycast(origin, (targetPos - origin), raycastParams)
+    if result and result.Instance and not result.Instance:IsDescendantOf(Player and Player.Character) then
+        return true
+    end
+    return false
+end
+
+local function GetClosestValidPlayer()
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+
+    local myChar = LocalPlayer.Character
+    local myHRP = myChar and myChar:FindFirstChild("HumanoidRootPart")
+    if not myHRP then return nil end
+
+    for _, plr in pairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and Config.SelectedPlayers[plr.Name] and IsValidTarget(plr) and plr.Character then
+            local targetPart = plr.Character:FindFirstChild(getgenv().Aimbot.Hitpart)
+            local targetHRP = plr.Character:FindFirstChild("HumanoidRootPart")
+            if targetPart and targetHRP then
+                -- Tính khoảng cách 3D trong game
+                local dist = (myHRP.Position - targetHRP.Position).Magnitude
+                if dist < shortestDistance then
+                    closestPlayer = plr
+                    shortestDistance = dist
+                end
+            end
+        end
+    end
+
+    return closestPlayer
+end
+
+RunService.RenderStepped:Connect(function(deltaTime)
+    UpdateESP()
+    UpdateSpeed()
+    UpdateFly(deltaTime)
+
+    if Config.AimbotEnabled and getgenv().Aimbot.Status then
+        Player = GetClosestValidPlayer()
+        if Player and Player.Character and Player.Character:FindFirstChild(getgenv().Aimbot.Hitpart) then
+            local part = Player.Character[getgenv().Aimbot.Hitpart]
+            local predictedPos = GetPredictedPosition(part)
+            if not IsObstructed(Camera.CFrame.Position, predictedPos) then
+                Camera.CFrame = CFrame.new(Camera.CFrame.Position, predictedPos)
+            end
+        end
+    end
+
+    if tbEnabled then
+        local part = GetBestTargetPart()
+        if part then
+            task.spawn(function()
+                local cap = part
+                task.wait(0)
+                if tbEnabled and distToCursor(cap) <= fovRadius then
+                    -- Kiểm tra raycast
+                    local origin = Camera.CFrame.Position
+                    local direction = (cap.Position - origin)
+                    local rayParams = RaycastParams.new()
+                    rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+                    rayParams.FilterDescendantsInstances = {LocalPlayer.Character}
+
+                    local result = Workspace:Raycast(origin, direction, rayParams)
+
+                    -- Nếu không có va chạm hoặc hit trúng đúng part của target => bắn
+                    if not result or result.Instance:IsDescendantOf(cap.Parent) then
+                        click()
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+local Connections = {}
+local function Connect(event, callback)
+    local connection = event:Connect(callback)
+    table.insert(Connections, connection)
+    return connection
+end
+
+Connect(Players.PlayerRemoving, function(player)
+    RemoveESP(player)
+    UpdatePlayerList()
+end)
+
+Connect(Players.PlayerAdded, function(player)
+    task.wait(math.random(2, 3))
+    RemoveESP(player)
+    if Config.SelectedPlayers[player.Name] then
+        Config.SelectedPlayers[player.Name] = true 
+    end
+    UpdatePlayerList()
+end)
+
+task.spawn(function()
+    while true do
+        UpdatePlayerList()
+        task.wait(math.random(12, 15))
+    end
+end)
+
+-- === Nút Select Target ===
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+local LocalPlayer = Players.LocalPlayer
+
+local FOV_RADIUS = 200
+
+-- Hàm lấy player gần chuột nhất trong FOV
+local function GetClosestValidPlayer()
+    local closest, shortestDist = nil, math.huge
+    local mousePos = UserInputService:GetMouseLocation()
+
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr ~= LocalPlayer and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+            local hrp = plr.Character.HumanoidRootPart
+            local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+            if onScreen then
+                local distFromMouse = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                if distFromMouse <= FOV_RADIUS and distFromMouse < shortestDist then
+                    shortestDist = distFromMouse
+                    closest = plr
+                end
+            end
+        end
+    end
+    return closest
+end
+
+-- Tạo nút nổi ngoài màn hình
+local selectGui = Instance.new("ScreenGui")
+selectGui.Name = "SelectTargetGui"
+selectGui.ResetOnSpawn = false -- chết không mất
+selectGui.Parent = CoreGui
+
+local selectBtn = Instance.new("TextButton")
+selectBtn.Size = UDim2.new(0, 110, 0, 35)
+selectBtn.Position = UDim2.new(0, 300, 0, 200)
+selectBtn.BackgroundColor3 = Color3.fromRGB(255, 200, 200)
+selectBtn.Text = "Set Target"
+selectBtn.Font = Enum.Font.GothamBold
+selectBtn.TextSize = 14
+selectBtn.TextColor3 = Color3.new(0, 0, 0)
+selectBtn.Parent = selectGui
+Instance.new("UICorner", selectBtn).CornerRadius = UDim.new(0, 8)
+
+-- Cho phép kéo nút
+local dragging, dragStart, startPos
+selectBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = selectBtn.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local delta = input.Position - dragStart
+        selectBtn.Position = UDim2.new(
+            startPos.X.Scale, startPos.X.Offset + delta.X,
+            startPos.Y.Scale, startPos.Y.Offset + delta.Y
+        )
+    end
+end)
+
+-- Xử lý khi click
+selectBtn.MouseButton1Click:Connect(function()
+    local target = GetClosestValidPlayer()
+    if target then
+        local displayName = target.DisplayName
+        local username = target.Name
+
+        if Config.SelectedPlayers[username] then
+            Config.SelectedPlayers[username] = nil
+            game.StarterGui:SetCore("SendNotification", {
+                Title = "Set Target",
+                Text = "Bỏ chọn: " .. displayName,
+                Duration = 2
+            })
+        else
+            Config.SelectedPlayers[username] = true
+            game.StarterGui:SetCore("SendNotification", {
+                Title = "Select Target",
+                Text = "Đã chọn: " .. displayName,
+                Duration = 2
+            })
+        end
+
+        if UpdateSelectedPlayersUI then
+            UpdateSelectedPlayersUI() -- cập nhật danh sách GUI ngay
+        end
+    else
+        game.StarterGui:SetCore("SendNotification", {
+            Title = "Set Target",
+            Text = "Không tìm thấy mục tiêu trong FOV",
+            Duration = 2
+        })
+    end
+end)
+
+-- Bắt sự kiện bấm chuột giữa để chọn target
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton3 then -- Chuột giữa
+        local target = GetClosestValidPlayer()
+        if target then
+            local displayName = target.DisplayName
+            local username = target.Name
+
+            if Config.SelectedPlayers[username] then
+                Config.SelectedPlayers[username] = nil
+                game.StarterGui:SetCore("SendNotification", {
+                    Title = "Set Target",
+                    Text = "Bỏ chọn: " .. displayName,
+                    Duration = 2
+                })
+            else
+                Config.SelectedPlayers[username] = true
+                game.StarterGui:SetCore("SendNotification", {
+                    Title = "Select Target",
+                    Text = "Đã chọn: " .. displayName,
+                    Duration = 2
+                })
+            end
+
+            if UpdateSelectedPlayersUI then
+                UpdateSelectedPlayersUI()
+            end
+        else
+            game.StarterGui:SetCore("SendNotification", {
+                Title = "Set Target",
+                Text = "Không tìm thấy mục tiêu trong FOV",
+                Duration = 2
+            })
+        end
+    end
+end)
