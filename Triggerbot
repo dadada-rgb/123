@@ -1,0 +1,347 @@
+--[[
+    kunay's triggerbot - A simple triggerbot with UI using Obsidian/LinoriaLib
+    Features: Toggle, Prediction input, Auto Prediction (ping-based), FOV slider, Checks dropdown
+    Auto Prediction logic based on ping ranges with predefined prediction values.
+]]
+
+local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
+local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
+local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
+local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
+
+local Options = Library.Options
+local Toggles = Library.Toggles
+
+local Window = Library:CreateWindow({
+    Title = "kunay's triggerbot",
+    Footer = "triggerbot premium",
+    Icon = 0,
+    NotifySide = "Right",
+    ShowCustomCursor = true,
+})
+
+local Tabs = {
+    Triggerbot = Window:AddTab("Triggerbot", "crosshair"),
+    ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
+}
+
+--// Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Stats = game:GetService("Stats")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+
+--// Hit Parts list
+local HitParts = {
+    "Head","HumanoidRootPart","UpperTorso","LowerTorso",
+    "LeftUpperArm","RightUpperArm","LeftLowerArm","RightLowerArm",
+    "LeftHand","RightHand","LeftUpperLeg","RightUpperLeg",
+    "LeftLowerLeg","RightLowerLeg","LeftFoot","RightFoot",
+    "Torso","Left Arm","Right Arm","Left Leg","Right Leg"
+}
+
+--// Config table
+getgenv().matcha = {
+    TriggerbotEnabled = false,
+    TriggerPrediction = 0,
+    TriggerFOV = 20,
+    AutoPrediction = false,
+    -- checks
+    CheckTeam = false,
+    CheckWall = true,
+    CheckAlive = true,
+    CheckFriend = false,
+    CheckKnife = false,
+}
+
+--// Utility checks
+local function canSeeThroughWall(localPlayer, target)
+    if not (target and target.Character and target.Character:FindFirstChild("HumanoidRootPart")) then return false end
+    local ray = Ray.new(Camera.CFrame.Position, (target.Character.HumanoidRootPart.Position - Camera.CFrame.Position).Unit * 10000)
+    local hit = workspace:FindPartOnRayWithIgnoreList(ray, {localPlayer.Character})
+    return hit and hit:IsDescendantOf(target.Character)
+end
+
+local function isAlive(plr)
+    if not plr or not plr.Character then return false end
+    local hum = plr.Character:FindFirstChildOfClass("Humanoid")
+    if not hum or hum.Health <= 0 then return false end
+    local be = plr.Character:FindFirstChild("BodyEffects")
+    if be then
+        local ko = be:FindFirstChild("K.O")
+        local grabbed = be:FindFirstChild("GRABBING_CONSTRAINT")
+        if (ko and ko.Value) or (grabbed and grabbed.Value) then
+            return false
+        end
+    end
+    return true
+end
+
+local function isHoldingKnife()
+    local char = LocalPlayer.Character
+    if char then
+        local tool = char:FindFirstChildWhichIsA("Tool")
+        if tool and tool.Name:lower():find("knife") then return true end
+    end
+    return false
+end
+
+--// Main validation
+local function isValidTriggerTarget(plr)
+    if plr == LocalPlayer then return false end
+    if getgenv().matcha.CheckTeam and plr.Team == LocalPlayer.Team then return false end
+    if getgenv().matcha.CheckFriend and LocalPlayer:IsFriendsWith(plr.UserId) then return false end
+    if getgenv().matcha.CheckAlive and not isAlive(plr) then return false end
+    if getgenv().matcha.CheckKnife and isHoldingKnife() then return false end
+    if getgenv().matcha.CheckWall and not canSeeThroughWall(LocalPlayer, plr) then return false end
+    return true
+end
+
+--// Distance from cursor
+local function distToCursor(part)
+    local v, vis = Camera:WorldToViewportPoint(part.Position)
+    if not vis then return math.huge end
+    local m = UserInputService.TouchEnabled and Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2) or UserInputService:GetMouseLocation()
+    return (Vector2.new(v.X, v.Y) - m).Magnitude
+end
+
+--// Click / Tool activate
+local function click()
+    if UserInputService.TouchEnabled then
+        local touchPos = UserInputService:GetMouseLocation()
+        VirtualInputManager:SendTouchEvent(0, Enum.UserInputState.Begin, touchPos)
+        task.wait()
+        VirtualInputManager:SendTouchEvent(0, Enum.UserInputState.End, touchPos)
+    else
+        if mouse1press then mouse1press() mouse1release() elseif mouse1click then mouse1click() end
+    end
+end
+
+local function toolActivate(tool)
+    pcall(function() tool:Activate() end)
+end
+
+--// Find best part in FOV
+local function GetBestTargetPart()
+    local bestPart, bestDist = nil, getgenv().matcha.TriggerFOV
+    for _, plr in pairs(Players:GetPlayers()) do
+        if isValidTriggerTarget(plr) and plr.Character then
+            for _, partName in ipairs(HitParts) do
+                local part = plr.Character:FindFirstChild(partName)
+                if part and part:IsA("BasePart") then
+                    local dist = distToCursor(part)
+                    if dist < bestDist then
+                        bestPart = part
+                        bestDist = dist
+                    end
+                end
+            end
+        end
+    end
+    return bestPart
+end
+
+--// Auto Prediction Logic
+local function updateAutoPrediction()
+    if not getgenv().matcha.AutoPrediction then return end
+
+    local ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() -- Roblox ping in ms
+    local pred = 0
+
+    if ping >= 70 and ping <= 90 then
+        local values = {0.1, 0.107, 0.125, 0.115, 0.1225, 0.134, 0.135, 0.1442}
+        pred = values[math.random(1, #values)]
+    elseif ping >= 100 and ping <= 150 then
+        local values = {0.17, 0.172, 0.1755, 0.1772, 0.18, 0.18291}
+        pred = values[math.random(1, #values)]
+    elseif ping >= 200 and ping <= 300 then
+        local values = {0.2, 0.2190, 0.221, 0.225, 0.234, 0.2369, 0.241, 0.24541, 0.2510}
+        pred = values[math.random(1, #values)]
+    else
+        pred = 0.1 -- fallback
+    end
+
+    getgenv().matcha.TriggerPrediction = pred
+    Options.PredictionInput:SetValue(tostring(pred))
+end
+
+--// Main loop
+local connection
+connection = RunService.RenderStepped:Connect(function()
+    if not getgenv().matcha.TriggerbotEnabled then return end
+
+    local part = GetBestTargetPart()
+    if part then
+        task.spawn(function()
+            local selectedPart = part
+            task.wait(getgenv().matcha.TriggerPrediction)
+
+            if not getgenv().matcha.TriggerbotEnabled then return end
+            if distToCursor(selectedPart) <= getgenv().matcha.TriggerFOV then
+                local origin = Camera.CFrame.Position
+                local direction = (selectedPart.Position - origin)
+                local rayParams = RaycastParams.new()
+                rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+                rayParams.FilterDescendantsInstances = {LocalPlayer.Character}
+
+                local result = workspace:Raycast(origin, direction, rayParams)
+                if not result or result.Instance:IsDescendantOf(selectedPart.Parent) then
+                    local char = LocalPlayer.Character
+                    local tool = char and char:FindFirstChildWhichIsA("Tool")
+                    local ammo = tool and tool:FindFirstChild("Ammo")
+                    if tool and ammo then
+                        toolActivate(tool)
+                    else
+                        click()
+                    end
+                end
+            end
+        end)
+    end
+end)
+
+--// Ping update loop for Auto Prediction
+task.spawn(function()
+    while true do
+        updateAutoPrediction()
+        task.wait(1)
+    end
+end)
+
+--// UI: Triggerbot Tab
+local TriggerGroup = Tabs.Triggerbot:AddLeftGroupbox("Triggerbot Controls")
+
+TriggerGroup:AddToggle("TriggerbotEnabled", {
+    Text = "Enable Triggerbot",
+    Default = false,
+    Tooltip = "Toggles the triggerbot on/off",
+    Callback = function(v) getgenv().matcha.TriggerbotEnabled = v end
+})
+
+TriggerGroup:AddInput("PredictionInput", {
+    Text = "Prediction",
+    Default = "0",
+    Numeric = true,
+    Finished = true,
+    Tooltip = "Manual prediction delay in seconds",
+    Callback = function(v)
+        local num = tonumber(v) or 0
+        getgenv().matcha.TriggerPrediction = num
+        if getgenv().matcha.AutoPrediction then
+            Toggles.AutoPrediction:SetValue(false)
+        end
+    end
+})
+
+TriggerGroup:AddToggle("AutoPrediction", {
+    Text = "Auto Prediction",
+    Default = false,
+    Tooltip = "Automatically adjusts prediction based on ping",
+    Callback = function(v)
+        getgenv().matcha.AutoPrediction = v
+        if v then
+            updateAutoPrediction()
+        end
+    end
+})
+
+TriggerGroup:AddSlider("TriggerFOV", {
+    Text = "Trigger FOV",
+    Default = 20,
+    Min = 1,
+    Max = 50,
+    Rounding = 0,
+    Suffix = "px",
+    Callback = function(v) getgenv().matcha.TriggerFOV = v end
+})
+
+-- Checks Dropdown (Multi-select)
+TriggerGroup:AddDropdown("TriggerChecks", {
+    Text = "Trigger Checks",
+    Values = {"Team Check", "Wall Check", "Alive Check", "Friend Check", "Knife Check"},
+    Default = {"Wall Check", "Alive Check"}, -- Default enabled
+    Multi = true,
+    Tooltip = "Select validation checks",
+    Callback = function(tbl)
+        getgenv().matcha.CheckTeam = tbl["Team Check"] or false
+        getgenv().matcha.CheckWall = tbl["Wall Check"] or false
+        getgenv().matcha.CheckAlive = tbl["Alive Check"] or false
+        getgenv().matcha.CheckFriend = tbl["Friend Check"] or false
+        getgenv().matcha.CheckKnife = tbl["Knife Check"] or false
+    end
+})
+
+-- Sync UI with config on load
+Toggles.TriggerbotEnabled:SetValue(getgenv().matcha.TriggerbotEnabled)
+Options.PredictionInput:SetValue(tostring(getgenv().matcha.TriggerPrediction))
+Toggles.AutoPrediction:SetValue(getgenv().matcha.AutoPrediction)
+Options.TriggerFOV:SetValue(getgenv().matcha.TriggerFOV)
+Options.TriggerChecks:SetValue({
+    ["Team Check"] = getgenv().matcha.CheckTeam,
+    ["Wall Check"] = getgenv().matcha.CheckWall,
+    ["Alive Check"] = getgenv().matcha.CheckAlive,
+    ["Friend Check"] = getgenv().matcha.CheckFriend,
+    ["Knife Check"] = getgenv().matcha.CheckKnife,
+})
+
+--// UI Settings (from example)
+local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu")
+
+MenuGroup:AddToggle("KeybindMenuOpen", {
+    Default = Library.KeybindFrame.Visible,
+    Text = "Open Keybind Menu",
+    Callback = function(v) Library.KeybindFrame.Visible = v end
+})
+
+MenuGroup:AddToggle("ShowCustomCursor", {
+    Text = "Custom Cursor",
+    Default = true,
+    Callback = function(v) Library.ShowCustomCursor = v end
+})
+
+MenuGroup:AddDropdown("NotificationSide", {
+    Values = { "Left", "Right" },
+    Default = "Right",
+    Text = "Notification Side",
+    Callback = function(v) Library:SetNotifySide(v) end
+})
+
+MenuGroup:AddDropdown("DPIDropdown", {
+    Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" },
+    Default = "100%",
+    Text = "DPI Scale",
+    Callback = function(v)
+        local dpi = tonumber(v:gsub("%%", ""))
+        Library:SetDPIScale(dpi)
+    end
+})
+
+MenuGroup:AddDivider()
+MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = true, Text = "Menu keybind" })
+MenuGroup:AddButton("Unload", function() Library:Unload() end)
+
+Library.ToggleKeybind = Options.MenuKeybind
+
+--// SaveManager & ThemeManager
+ThemeManager:SetLibrary(Library)
+SaveManager:SetLibrary(Library)
+SaveManager:IgnoreThemeSettings()
+SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
+
+ThemeManager:SetFolder("kunayTriggerbot")
+SaveManager:SetFolder("kunayTriggerbot/config")
+
+SaveManager:BuildConfigSection(Tabs["UI Settings"])
+ThemeManager:ApplyToTab(Tabs["UI Settings"])
+
+SaveManager:LoadAutoloadConfig()
+
+--// Cleanup on unload
+Library:OnUnload(function()
+    if connection then connection:Disconnect() end
+    print("ui triggerbot unloaded.")
+end)
