@@ -1,8 +1,4 @@
---[[
-    kunay's triggerbot - A simple triggerbot with UI using Obsidian/LinoriaLib
-    Features: Toggle, Prediction input, Auto Prediction (ping-based), FOV slider, Checks dropdown
-    Auto Prediction logic based on ping ranges with predefined prediction values.
-]]
+
 
 local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
 local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
@@ -14,7 +10,7 @@ local Toggles = Library.Toggles
 
 local Window = Library:CreateWindow({
     Title = "kunay's triggerbot",
-    Footer = "triggerbot premium",
+    Footer = "version premium",
     Icon = 0,
     NotifySide = "Right",
     ShowCustomCursor = true,
@@ -56,6 +52,15 @@ getgenv().matcha = {
     CheckAlive = true,
     CheckFriend = false,
     CheckKnife = false,
+}
+
+--// Hitbox Expander Config
+getgenv().HitboxExpander = {
+    Enabled = false,
+    VisualEnabled = false,
+    Size = 6,
+    Color = Color3.fromRGB(255, 0, 0),
+    Transparency = 0.7,
 }
 
 --// Utility checks
@@ -149,7 +154,7 @@ end
 local function updateAutoPrediction()
     if not getgenv().matcha.AutoPrediction then return end
 
-    local ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() -- Roblox ping in ms
+    local ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
     local pred = 0
 
     if ping >= 70 and ping <= 90 then
@@ -162,16 +167,16 @@ local function updateAutoPrediction()
         local values = {0.2, 0.2190, 0.221, 0.225, 0.234, 0.2369, 0.241, 0.24541, 0.2510}
         pred = values[math.random(1, #values)]
     else
-        pred = 0.1 -- fallback
+        pred = 0.1
     end
 
     getgenv().matcha.TriggerPrediction = pred
     Options.PredictionInput:SetValue(tostring(pred))
 end
 
---// Main loop
-local connection
-connection = RunService.RenderStepped:Connect(function()
+--// Triggerbot Loop
+local triggerConnection
+triggerConnection = RunService.RenderStepped:Connect(function()
     if not getgenv().matcha.TriggerbotEnabled then return end
 
     local part = GetBestTargetPart()
@@ -204,15 +209,140 @@ connection = RunService.RenderStepped:Connect(function()
     end
 end)
 
---// Ping update loop for Auto Prediction
+--// Auto Prediction Loop
 task.spawn(function()
-    while true do
+    while task.wait(1) do
         updateAutoPrediction()
-        task.wait(1)
     end
 end)
 
---// UI: Triggerbot Tab
+--// === HITBOX EXPANDER LOGIC ===
+local hitboxConnection
+local hitboxes = {} -- {character = {hitboxPart, visualPart}}
+
+local function cleanupAllHitboxes()
+    for _, parts in pairs(hitboxes) do
+        if parts.hitboxPart then parts.hitboxPart:Destroy() end
+        if parts.visualPart then parts.visualPart:Destroy() end
+    end
+    hitboxes = {}
+end
+
+local function updateHitbox(character)
+    if not character or character == LocalPlayer.Character then return end
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local root = humanoid and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
+    if not (humanoid and root and humanoid.Health > 0) then
+        if hitboxes[character] then
+            if hitboxes[character].hitboxPart then hitboxes[character].hitboxPart:Destroy() end
+            if hitboxes[character].visualPart then hitboxes[character].visualPart:Destroy() end
+            hitboxes[character] = nil
+        end
+        return
+    end
+
+    local player = Players:GetPlayerFromCharacter(character)
+    if player then return end -- Chỉ áp dụng cho NPC
+
+    local data = hitboxes[character] or {}
+
+    -- Tạo hoặc cập nhật Hitbox
+    if getgenv().HitboxExpander.Enabled then
+        if not data.hitboxPart then
+            local hitbox = Instance.new("Part")
+            hitbox.Name = "FakeHitbox"
+            hitbox.Size = Vector3.new(1,1,1)
+            hitbox.Transparency = 1
+            hitbox.Anchored = false
+            hitbox.CanCollide = false
+            hitbox.Massless = true
+            hitbox.CFrame = root.CFrame
+            hitbox.Parent = character
+
+            local weld = Instance.new("WeldConstraint")
+            weld.Part0 = root
+            weld.Part1 = hitbox
+            weld.Parent = hitbox
+
+            data.hitboxPart = hitbox
+        end
+
+        data.hitboxPart.Size = Vector3.new(
+            getgenv().HitboxExpander.Size,
+            getgenv().HitboxExpander.Size,
+            getgenv().HitboxExpander.Size
+        )
+    else
+        if data.hitboxPart then
+            data.hitboxPart:Destroy()
+            data.hitboxPart = nil
+        end
+    end
+
+    -- Tạo hoặc cập nhật Visual
+    if getgenv().HitboxExpander.VisualEnabled then
+        if not data.visualPart then
+            local visual = Instance.new("Part")
+            visual.Name = "VisualHitbox"
+            visual.Size = Vector3.new(1,1,1)
+            visual.Anchored = false
+            visual.CanCollide = false
+            visual.Massless = true
+            visual.CFrame = root.CFrame
+            visual.Parent = character
+
+            local weld = Instance.new("WeldConstraint")
+            weld.Part0 = root
+            weld.Part1 = visual
+            weld.Parent = visual
+
+            data.visualPart = visual
+        end
+
+        local visual = data.visualPart
+        visual.Size = Vector3.new(
+            getgenv().HitboxExpander.Size + 0.1,
+            getgenv().HitboxExpander.Size + 0.1,
+            getgenv().HitboxExpander.Size + 0.1
+        )
+        visual.Color = getgenv().HitboxExpander.Color
+        visual.Transparency = getgenv().HitboxExpander.Transparency
+    else
+        if data.visualPart then
+            data.visualPart:Destroy()
+            data.visualPart = nil
+        end
+    end
+
+    hitboxes[character] = data
+end
+
+--// Hitbox Main Loop
+local function startHitboxLoop()
+    if hitboxConnection then hitboxConnection:Disconnect() end
+
+    hitboxConnection = RunService.Heartbeat:Connect(function()
+        if not (getgenv().HitboxExpander.Enabled or getgenv().HitboxExpander.VisualEnabled) then
+            cleanupAllHitboxes()
+            return
+        end
+
+        for _, model in ipairs(workspace:GetDescendants()) do
+            if model:IsA("Model") and model:FindFirstChildOfClass("Humanoid") then
+                updateHitbox(model)
+            end
+        end
+
+        -- Xóa hitbox của nhân vật đã chết/biến mất
+        for character, _ in pairs(hitboxes) do
+            if not character.Parent or not character:FindFirstChildOfClass("Humanoid") then
+                updateHitbox(character)
+            end
+        end
+    end)
+end
+
+--// === UI: Triggerbot Tab (Left) ===
 local TriggerGroup = Tabs.Triggerbot:AddLeftGroupbox("Triggerbot Controls")
 
 TriggerGroup:AddToggle("TriggerbotEnabled", {
@@ -243,9 +373,7 @@ TriggerGroup:AddToggle("AutoPrediction", {
     Tooltip = "Automatically adjusts prediction based on ping",
     Callback = function(v)
         getgenv().matcha.AutoPrediction = v
-        if v then
-            updateAutoPrediction()
-        end
+        if v then updateAutoPrediction() end
     end
 })
 
@@ -259,11 +387,10 @@ TriggerGroup:AddSlider("TriggerFOV", {
     Callback = function(v) getgenv().matcha.TriggerFOV = v end
 })
 
--- Checks Dropdown (Multi-select)
 TriggerGroup:AddDropdown("TriggerChecks", {
     Text = "Trigger Checks",
     Values = {"Team Check", "Wall Check", "Alive Check", "Friend Check", "Knife Check"},
-    Default = {"Wall Check", "Alive Check"}, -- Default enabled
+    Default = {"Wall Check", "Alive Check"},
     Multi = true,
     Tooltip = "Select validation checks",
     Callback = function(tbl)
@@ -275,20 +402,71 @@ TriggerGroup:AddDropdown("TriggerChecks", {
     end
 })
 
--- Sync UI with config on load
-Toggles.TriggerbotEnabled:SetValue(getgenv().matcha.TriggerbotEnabled)
-Options.PredictionInput:SetValue(tostring(getgenv().matcha.TriggerPrediction))
-Toggles.AutoPrediction:SetValue(getgenv().matcha.AutoPrediction)
-Options.TriggerFOV:SetValue(getgenv().matcha.TriggerFOV)
-Options.TriggerChecks:SetValue({
-    ["Team Check"] = getgenv().matcha.CheckTeam,
-    ["Wall Check"] = getgenv().matcha.CheckWall,
-    ["Alive Check"] = getgenv().matcha.CheckAlive,
-    ["Friend Check"] = getgenv().matcha.CheckFriend,
-    ["Knife Check"] = getgenv().matcha.CheckKnife,
+--// === UI: Hitbox Expander (Right) ===
+local HitboxGroup = Tabs.Triggerbot:AddRightGroupbox("Hitbox Expander")
+
+HitboxGroup:AddToggle("HitboxEnabled", {
+    Text = "Enable Hitbox",
+    Default = false,
+    Tooltip = "Expands NPC hitboxes",
+    Callback = function(v)
+        getgenv().HitboxExpander.Enabled = v
+        startHitboxLoop()
+    end
 })
 
---// UI Settings (from example)
+HitboxGroup:AddSlider("HitboxSize", {
+    Text = "Hitbox Size",
+    Default = 6,
+    Min = 1,
+    Max = 100,
+    Rounding = 1,
+    Suffix = "",
+    Callback = function(v)
+        getgenv().HitboxExpander.Size = v
+    end
+})
+
+HitboxGroup:AddToggle("HitboxVisual", {
+    Text = "Show Visual",
+    Default = false,
+    Tooltip = "Shows colored box around hitbox",
+    Callback = function(v)
+        getgenv().HitboxExpander.VisualEnabled = v
+        startHitboxLoop()
+    end
+})
+
+-- ColorPicker
+HitboxGroup:AddLabel("Color"):AddColorPicker("HitboxColor", {
+    Default = Color3.fromRGB(255, 0, 0),
+    Title = "Hitbox Color",
+    Callback = function(v)
+        getgenv().HitboxExpander.Color = v
+    end
+})
+
+-- Transparency Slider
+HitboxGroup:AddSlider("HitboxTransparency", {
+    Text = "Transparency",
+    Default = 0.7,
+    Min = 0,
+    Max = 1,
+    Rounding = 2,
+    Suffix = "",
+    Callback = function(v)
+        getgenv().HitboxExpander.Transparency = v
+    end
+})
+
+-- Sync UI with config
+Toggles.HitboxEnabled:SetValue(getgenv().HitboxExpander.Enabled)
+Options.HitboxSize:SetValue(getgenv().HitboxExpander.Size)
+Toggles.HitboxVisual:SetValue(getgenv().HitboxExpander.VisualEnabled)
+Options.HitboxColor:SetValue(getgenv().HitboxExpander.Color)
+Options.HitboxTransparency:SetValue(getgenv().HitboxExpander.Transparency)
+
+--// === UI Settings ===
 local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu")
 
 MenuGroup:AddToggle("KeybindMenuOpen", {
@@ -342,6 +520,8 @@ SaveManager:LoadAutoloadConfig()
 
 --// Cleanup on unload
 Library:OnUnload(function()
-    if connection then connection:Disconnect() end
-    print("ui triggerbot unloaded.")
+    if triggerConnection then triggerConnection:Disconnect() end
+    if hitboxConnection then hitboxConnection:Disconnect() end
+    cleanupAllHitboxes()
+    print("kunay's triggerbot + hitbox expander unloaded.")
 end)
