@@ -36,7 +36,6 @@ getgenv().matcha = {
     TriggerbotEnabled = false,
     TriggerPrediction = 0,
     TriggerFOV = 20,
-    AutoPrediction = false,
     -- checks
     CheckTeam = false,
     CheckWall = true,
@@ -132,26 +131,7 @@ local function GetBestTargetPart()
     end
     return bestPart
 end
---// Auto Prediction Logic (sửa: không cập nhật input khi auto bật, chỉ thay đổi prediction theo ping)
-local function updateAutoPrediction()
-    if not getgenv().matcha.AutoPrediction then return end
-    local ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
-    local pred = 0
-    if ping >= 70 and ping <= 90 then
-        local values = {0.1, 0.107, 0.125, 0.115, 0.1225, 0.134, 0.135, 0.1442}
-        pred = values[math.random(1, #values)]
-    elseif ping >= 100 and ping <= 150 then
-        local values = {0.17, 0.172, 0.1755, 0.1772, 0.18, 0.18291}
-        pred = values[math.random(1, #values)]
-    elseif ping >= 200 and ping <= 300 then
-        local values = {0.2, 0.2190, 0.221, 0.225, 0.234, 0.2369, 0.241, 0.24541, 0.2510}
-        pred = values[math.random(1, #values)]
-    else
-        pred = 0.1
-    end
-    getgenv().matcha.TriggerPrediction = pred
-    -- Bỏ SetValue để không ghi ra input
-end
+
 --// Triggerbot Loop
 local triggerConnection
 triggerConnection = RunService.RenderStepped:Connect(function()
@@ -183,12 +163,7 @@ triggerConnection = RunService.RenderStepped:Connect(function()
         end)
     end
 end)
---// Auto Prediction Loop
-task.spawn(function()
-    while task.wait(1) do
-        updateAutoPrediction()
-    end
-end)
+
 --// Hitbox Expander Logic (sửa: áp dụng loop update hitbox, với visual/no visual dựa VisualEnabled, thêm team check)
 local hitboxConnection
 hitboxConnection = RunService.RenderStepped:Connect(function()
@@ -251,20 +226,11 @@ TriggerGroup:AddInput("PredictionInput", {
         end
     end
 })
-TriggerGroup:AddToggle("AutoPrediction", {
-    Text = "Auto Prediction",
-    Default = false,
-    Tooltip = "Automatically adjusts prediction based on ping",
-    Callback = function(v)
-        getgenv().matcha.AutoPrediction = v
-        if v then updateAutoPrediction() end
-    end
-})
 TriggerGroup:AddSlider("TriggerFOV", {
     Text = "Trigger FOV",
     Default = 20,
     Min = 1,
-    Max = 50,
+    Max = 100,
     Rounding = 0,
     Suffix = "px",
     Callback = function(v) getgenv().matcha.TriggerFOV = v end
