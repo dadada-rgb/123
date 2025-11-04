@@ -1,13 +1,9 @@
-
-
 local repo = "https://raw.githubusercontent.com/deividcomsono/Obsidian/main/"
 local Library = loadstring(game:HttpGet(repo .. "Library.lua"))()
 local ThemeManager = loadstring(game:HttpGet(repo .. "addons/ThemeManager.lua"))()
 local SaveManager = loadstring(game:HttpGet(repo .. "addons/SaveManager.lua"))()
-
 local Options = Library.Options
 local Toggles = Library.Toggles
-
 local Window = Library:CreateWindow({
     Title = "kunay's triggerbot",
     Footer = "version premium",
@@ -15,22 +11,18 @@ local Window = Library:CreateWindow({
     NotifySide = "Right",
     ShowCustomCursor = true,
 })
-
 local Tabs = {
     Triggerbot = Window:AddTab("Triggerbot", "crosshair"),
     ["UI Settings"] = Window:AddTab("UI Settings", "settings"),
 }
-
 --// Services
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local VirtualInputManager = game:GetService("VirtualInputManager")
 local Stats = game:GetService("Stats")
-
 local LocalPlayer = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
-
 --// Hit Parts list
 local HitParts = {
     "Head","HumanoidRootPart","UpperTorso","LowerTorso",
@@ -39,7 +31,6 @@ local HitParts = {
     "LeftLowerLeg","RightLowerLeg","LeftFoot","RightFoot",
     "Torso","Left Arm","Right Arm","Left Leg","Right Leg"
 }
-
 --// Config table
 getgenv().matcha = {
     TriggerbotEnabled = false,
@@ -53,16 +44,15 @@ getgenv().matcha = {
     CheckFriend = false,
     CheckKnife = false,
 }
-
 --// Hitbox Expander Config
 getgenv().HitboxExpander = {
     Enabled = false,
     VisualEnabled = false,
+    TeamCheck = false,  -- Thêm team check cho hitbox
     Size = 6,
     Color = Color3.fromRGB(255, 0, 0),
     Transparency = 0.7,
 }
-
 --// Utility checks
 local function canSeeThroughWall(localPlayer, target)
     if not (target and target.Character and target.Character:FindFirstChild("HumanoidRootPart")) then return false end
@@ -70,7 +60,6 @@ local function canSeeThroughWall(localPlayer, target)
     local hit = workspace:FindPartOnRayWithIgnoreList(ray, {localPlayer.Character})
     return hit and hit:IsDescendantOf(target.Character)
 end
-
 local function isAlive(plr)
     if not plr or not plr.Character then return false end
     local hum = plr.Character:FindFirstChildOfClass("Humanoid")
@@ -85,7 +74,6 @@ local function isAlive(plr)
     end
     return true
 end
-
 local function isHoldingKnife()
     local char = LocalPlayer.Character
     if char then
@@ -94,7 +82,6 @@ local function isHoldingKnife()
     end
     return false
 end
-
 --// Main validation
 local function isValidTriggerTarget(plr)
     if plr == LocalPlayer then return false end
@@ -105,7 +92,6 @@ local function isValidTriggerTarget(plr)
     if getgenv().matcha.CheckWall and not canSeeThroughWall(LocalPlayer, plr) then return false end
     return true
 end
-
 --// Distance from cursor
 local function distToCursor(part)
     local v, vis = Camera:WorldToViewportPoint(part.Position)
@@ -113,7 +99,6 @@ local function distToCursor(part)
     local m = UserInputService.TouchEnabled and Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2) or UserInputService:GetMouseLocation()
     return (Vector2.new(v.X, v.Y) - m).Magnitude
 end
-
 --// Click / Tool activate
 local function click()
     if UserInputService.TouchEnabled then
@@ -125,11 +110,9 @@ local function click()
         if mouse1press then mouse1press() mouse1release() elseif mouse1click then mouse1click() end
     end
 end
-
 local function toolActivate(tool)
     pcall(function() tool:Activate() end)
 end
-
 --// Find best part in FOV
 local function GetBestTargetPart()
     local bestPart, bestDist = nil, getgenv().matcha.TriggerFOV
@@ -149,14 +132,11 @@ local function GetBestTargetPart()
     end
     return bestPart
 end
-
---// Auto Prediction Logic
+--// Auto Prediction Logic (sửa: không cập nhật input khi auto bật, chỉ thay đổi prediction theo ping)
 local function updateAutoPrediction()
     if not getgenv().matcha.AutoPrediction then return end
-
     local ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue()
     local pred = 0
-
     if ping >= 70 and ping <= 90 then
         local values = {0.1, 0.107, 0.125, 0.115, 0.1225, 0.134, 0.135, 0.1442}
         pred = values[math.random(1, #values)]
@@ -169,22 +149,18 @@ local function updateAutoPrediction()
     else
         pred = 0.1
     end
-
     getgenv().matcha.TriggerPrediction = pred
-    Options.PredictionInput:SetValue(tostring(pred))
+    -- Bỏ SetValue để không ghi ra input
 end
-
 --// Triggerbot Loop
 local triggerConnection
 triggerConnection = RunService.RenderStepped:Connect(function()
     if not getgenv().matcha.TriggerbotEnabled then return end
-
     local part = GetBestTargetPart()
     if part then
         task.spawn(function()
             local selectedPart = part
             task.wait(getgenv().matcha.TriggerPrediction)
-
             if not getgenv().matcha.TriggerbotEnabled then return end
             if distToCursor(selectedPart) <= getgenv().matcha.TriggerFOV then
                 local origin = Camera.CFrame.Position
@@ -192,7 +168,6 @@ triggerConnection = RunService.RenderStepped:Connect(function()
                 local rayParams = RaycastParams.new()
                 rayParams.FilterType = Enum.RaycastFilterType.Blacklist
                 rayParams.FilterDescendantsInstances = {LocalPlayer.Character}
-
                 local result = workspace:Raycast(origin, direction, rayParams)
                 if not result or result.Instance:IsDescendantOf(selectedPart.Parent) then
                     local char = LocalPlayer.Character
@@ -208,150 +183,60 @@ triggerConnection = RunService.RenderStepped:Connect(function()
         end)
     end
 end)
-
 --// Auto Prediction Loop
 task.spawn(function()
     while task.wait(1) do
         updateAutoPrediction()
     end
 end)
-
---// === HITBOX EXPANDER LOGIC ===
+--// Hitbox Expander Logic (sửa: áp dụng loop update hitbox, với visual/no visual dựa VisualEnabled, thêm team check)
 local hitboxConnection
-local hitboxes = {} -- {character = {hitboxPart, visualPart}}
-
-local function cleanupAllHitboxes()
-    for _, parts in pairs(hitboxes) do
-        if parts.hitboxPart then parts.hitboxPart:Destroy() end
-        if parts.visualPart then parts.visualPart:Destroy() end
-    end
-    hitboxes = {}
-end
-
-local function updateHitbox(character)
-    if not character or character == LocalPlayer.Character then return end
-    local humanoid = character:FindFirstChildOfClass("Humanoid")
-    local root = humanoid and (character:FindFirstChild("HumanoidRootPart") or character.PrimaryPart)
-    if not (humanoid and root and humanoid.Health > 0) then
-        if hitboxes[character] then
-            if hitboxes[character].hitboxPart then hitboxes[character].hitboxPart:Destroy() end
-            if hitboxes[character].visualPart then hitboxes[character].visualPart:Destroy() end
-            hitboxes[character] = nil
-        end
-        return
-    end
-
-    local player = Players:GetPlayerFromCharacter(character)
-    if player then return end -- Chỉ áp dụng cho NPC
-
-    local data = hitboxes[character] or {}
-
-    -- Tạo hoặc cập nhật Hitbox
+hitboxConnection = RunService.RenderStepped:Connect(function()
     if getgenv().HitboxExpander.Enabled then
-        if not data.hitboxPart then
-            local hitbox = Instance.new("Part")
-            hitbox.Name = "FakeHitbox"
-            hitbox.Size = Vector3.new(1,1,1)
-            hitbox.Transparency = 1
-            hitbox.Anchored = false
-            hitbox.CanCollide = false
-            hitbox.Massless = true
-            hitbox.CFrame = root.CFrame
-            hitbox.Parent = character
-
-            local weld = Instance.new("WeldConstraint")
-            weld.Part0 = root
-            weld.Part1 = hitbox
-            weld.Parent = hitbox
-
-            data.hitboxPart = hitbox
-        end
-
-        data.hitboxPart.Size = Vector3.new(
-            getgenv().HitboxExpander.Size,
-            getgenv().HitboxExpander.Size,
-            getgenv().HitboxExpander.Size
-        )
-    else
-        if data.hitboxPart then
-            data.hitboxPart:Destroy()
-            data.hitboxPart = nil
-        end
-    end
-
-    -- Tạo hoặc cập nhật Visual
-    if getgenv().HitboxExpander.VisualEnabled then
-        if not data.visualPart then
-            local visual = Instance.new("Part")
-            visual.Name = "VisualHitbox"
-            visual.Size = Vector3.new(1,1,1)
-            visual.Anchored = false
-            visual.CanCollide = false
-            visual.Massless = true
-            visual.CFrame = root.CFrame
-            visual.Parent = character
-
-            local weld = Instance.new("WeldConstraint")
-            weld.Part0 = root
-            weld.Part1 = visual
-            weld.Parent = visual
-
-            data.visualPart = visual
-        end
-
-        local visual = data.visualPart
-        visual.Size = Vector3.new(
-            getgenv().HitboxExpander.Size + 0.1,
-            getgenv().HitboxExpander.Size + 0.1,
-            getgenv().HitboxExpander.Size + 0.1
-        )
-        visual.Color = getgenv().HitboxExpander.Color
-        visual.Transparency = getgenv().HitboxExpander.Transparency
-    else
-        if data.visualPart then
-            data.visualPart:Destroy()
-            data.visualPart = nil
-        end
-    end
-
-    hitboxes[character] = data
-end
-
---// Hitbox Main Loop
-local function startHitboxLoop()
-    if hitboxConnection then hitboxConnection:Disconnect() end
-
-    hitboxConnection = RunService.Heartbeat:Connect(function()
-        if not (getgenv().HitboxExpander.Enabled or getgenv().HitboxExpander.VisualEnabled) then
-            cleanupAllHitboxes()
-            return
-        end
-
-        for _, model in ipairs(workspace:GetDescendants()) do
-            if model:IsA("Model") and model:FindFirstChildOfClass("Humanoid") then
-                updateHitbox(model)
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                if getgenv().HitboxExpander.TeamCheck and LocalPlayer.Team == player.Team then
+                    continue
+                end
+                pcall(function()
+                    local hrp = player.Character.HumanoidRootPart
+                    hrp.Size = Vector3.new(getgenv().HitboxExpander.Size, getgenv().HitboxExpander.Size, getgenv().HitboxExpander.Size)
+                    if getgenv().HitboxExpander.VisualEnabled then
+                        hrp.Transparency = getgenv().HitboxExpander.Transparency
+                        hrp.Color = getgenv().HitboxExpander.Color
+                        hrp.Material = "Neon"
+                    else
+                        hrp.Transparency = 1
+                        hrp.Color = Color3.fromRGB(128, 128, 128)  -- Medium stone grey
+                        hrp.Material = "Plastic"
+                    end
+                    hrp.CanCollide = false
+                end)
             end
         end
-
-        -- Xóa hitbox của nhân vật đã chết/biến mất
-        for character, _ in pairs(hitboxes) do
-            if not character.Parent or not character:FindFirstChildOfClass("Humanoid") then
-                updateHitbox(character)
+    else
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer then
+                pcall(function()
+                    local hrp = player.Character.HumanoidRootPart
+                    hrp.Size = Vector3.new(2, 2, 1)
+                    hrp.Transparency = 1
+                    hrp.Color = Color3.fromRGB(128, 128, 128)
+                    hrp.Material = "Plastic"
+                    hrp.CanCollide = false
+                end)
             end
         end
-    end)
-end
-
+    end
+end)
 --// === UI: Triggerbot Tab (Left) ===
 local TriggerGroup = Tabs.Triggerbot:AddLeftGroupbox("Triggerbot Controls")
-
 TriggerGroup:AddToggle("TriggerbotEnabled", {
     Text = "Enable Triggerbot",
     Default = false,
     Tooltip = "Toggles the triggerbot on/off",
     Callback = function(v) getgenv().matcha.TriggerbotEnabled = v end
 })
-
 TriggerGroup:AddInput("PredictionInput", {
     Text = "Prediction",
     Default = "0",
@@ -366,7 +251,6 @@ TriggerGroup:AddInput("PredictionInput", {
         end
     end
 })
-
 TriggerGroup:AddToggle("AutoPrediction", {
     Text = "Auto Prediction",
     Default = false,
@@ -376,7 +260,6 @@ TriggerGroup:AddToggle("AutoPrediction", {
         if v then updateAutoPrediction() end
     end
 })
-
 TriggerGroup:AddSlider("TriggerFOV", {
     Text = "Trigger FOV",
     Default = 20,
@@ -386,7 +269,6 @@ TriggerGroup:AddSlider("TriggerFOV", {
     Suffix = "px",
     Callback = function(v) getgenv().matcha.TriggerFOV = v end
 })
-
 TriggerGroup:AddDropdown("TriggerChecks", {
     Text = "Trigger Checks",
     Values = {"Team Check", "Wall Check", "Alive Check", "Friend Check", "Knife Check"},
@@ -401,20 +283,24 @@ TriggerGroup:AddDropdown("TriggerChecks", {
         getgenv().matcha.CheckKnife = tbl["Knife Check"] or false
     end
 })
-
 --// === UI: Hitbox Expander (Right) ===
 local HitboxGroup = Tabs.Triggerbot:AddRightGroupbox("Hitbox Expander")
-
 HitboxGroup:AddToggle("HitboxEnabled", {
     Text = "Enable Hitbox",
     Default = false,
     Tooltip = "Expands NPC hitboxes",
     Callback = function(v)
         getgenv().HitboxExpander.Enabled = v
-        startHitboxLoop()
     end
 })
-
+HitboxGroup:AddToggle("HitboxTeamCheck", {  -- Thêm toggle team check cho hitbox
+    Text = "Team Check",
+    Default = false,
+    Tooltip = "Skip same team for hitbox expander",
+    Callback = function(v)
+        getgenv().HitboxExpander.TeamCheck = v
+    end
+})
 HitboxGroup:AddSlider("HitboxSize", {
     Text = "Hitbox Size",
     Default = 6,
@@ -426,17 +312,14 @@ HitboxGroup:AddSlider("HitboxSize", {
         getgenv().HitboxExpander.Size = v
     end
 })
-
 HitboxGroup:AddToggle("HitboxVisual", {
     Text = "Show Visual",
     Default = false,
     Tooltip = "Shows colored box around hitbox",
     Callback = function(v)
         getgenv().HitboxExpander.VisualEnabled = v
-        startHitboxLoop()
     end
 })
-
 -- ColorPicker
 HitboxGroup:AddLabel("Color"):AddColorPicker("HitboxColor", {
     Default = Color3.fromRGB(255, 0, 0),
@@ -445,7 +328,6 @@ HitboxGroup:AddLabel("Color"):AddColorPicker("HitboxColor", {
         getgenv().HitboxExpander.Color = v
     end
 })
-
 -- Transparency Slider
 HitboxGroup:AddSlider("HitboxTransparency", {
     Text = "Transparency",
@@ -458,36 +340,24 @@ HitboxGroup:AddSlider("HitboxTransparency", {
         getgenv().HitboxExpander.Transparency = v
     end
 })
-
--- Sync UI with config
-Toggles.HitboxEnabled:SetValue(getgenv().HitboxExpander.Enabled)
-Options.HitboxSize:SetValue(getgenv().HitboxExpander.Size)
-Toggles.HitboxVisual:SetValue(getgenv().HitboxExpander.VisualEnabled)
-Options.HitboxColor:SetValue(getgenv().HitboxExpander.Color)
-Options.HitboxTransparency:SetValue(getgenv().HitboxExpander.Transparency)
-
 --// === UI Settings ===
 local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu")
-
 MenuGroup:AddToggle("KeybindMenuOpen", {
     Default = Library.KeybindFrame.Visible,
     Text = "Open Keybind Menu",
     Callback = function(v) Library.KeybindFrame.Visible = v end
 })
-
 MenuGroup:AddToggle("ShowCustomCursor", {
     Text = "Custom Cursor",
     Default = true,
     Callback = function(v) Library.ShowCustomCursor = v end
 })
-
 MenuGroup:AddDropdown("NotificationSide", {
     Values = { "Left", "Right" },
     Default = "Right",
     Text = "Notification Side",
     Callback = function(v) Library:SetNotifySide(v) end
 })
-
 MenuGroup:AddDropdown("DPIDropdown", {
     Values = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" },
     Default = "100%",
@@ -497,31 +367,23 @@ MenuGroup:AddDropdown("DPIDropdown", {
         Library:SetDPIScale(dpi)
     end
 })
-
 MenuGroup:AddDivider()
 MenuGroup:AddLabel("Menu bind"):AddKeyPicker("MenuKeybind", { Default = "RightShift", NoUI = true, Text = "Menu keybind" })
 MenuGroup:AddButton("Unload", function() Library:Unload() end)
-
 Library.ToggleKeybind = Options.MenuKeybind
-
 --// SaveManager & ThemeManager
 ThemeManager:SetLibrary(Library)
 SaveManager:SetLibrary(Library)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({ "MenuKeybind" })
-
 ThemeManager:SetFolder("kunayTriggerbot")
 SaveManager:SetFolder("kunayTriggerbot/config")
-
 SaveManager:BuildConfigSection(Tabs["UI Settings"])
 ThemeManager:ApplyToTab(Tabs["UI Settings"])
-
 SaveManager:LoadAutoloadConfig()
-
 --// Cleanup on unload
 Library:OnUnload(function()
     if triggerConnection then triggerConnection:Disconnect() end
     if hitboxConnection then hitboxConnection:Disconnect() end
-    cleanupAllHitboxes()
     print("kunay's triggerbot + hitbox expander unloaded.")
 end)
