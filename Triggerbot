@@ -140,7 +140,6 @@ triggerConnection = RunService.RenderStepped:Connect(function()
     if part then
         task.spawn(function()
             local selectedPart = part
-            task.wait(getgenv().matcha.TriggerPrediction)
             if not getgenv().matcha.TriggerbotEnabled then return end
             if distToCursor(selectedPart) <= getgenv().matcha.TriggerFOV then
                 local origin = Camera.CFrame.Position
@@ -153,6 +152,7 @@ triggerConnection = RunService.RenderStepped:Connect(function()
                     local char = LocalPlayer.Character
                     local tool = char and char:FindFirstChildWhichIsA("Tool")
                     local ammo = tool and tool:FindFirstChild("Ammo")
+                    task.wait(getgenv().matcha.TriggerPrediction)
                     if tool and ammo then
                         toolActivate(tool)
                     else
